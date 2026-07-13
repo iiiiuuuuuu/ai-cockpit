@@ -1,0 +1,22 @@
+openai.json
+openai.log
+quota-history.json
+openai.control.json
+node_modules
+openai.pid
+.DS_Store
+
+# Desktop wrapper generated artifacts
+desktop/node_modules
+desktop/package-lock.json
+desktop/dist
+desktop/src-tauri/target
+desktop/src-tauri/target-*
+desktop/src-tauri/gen
+desktop/src-tauri/resources/airouter
+desktop/src-tauri/binaries/node*
+desktop/.DS_Store
+
+.idea
+.superpowers/
+release-assets/

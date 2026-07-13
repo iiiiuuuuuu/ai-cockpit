@@ -1,0 +1,24 @@
+{
+  "name": "ai-cockpit-service",
+  "version": "1.0.0",
+  "description": "Bundled local API and account routing service for AI Cockpit",
+  "main": "run.js",
+  "scripts": {
+    "start": "node run.js",
+    "stop": "node run.js stop",
+    "restart": "node run.js restart",
+    "logs": "node run.js logs",
+    "test": "node --test"
+  },
+  "keywords": [
+    "ai-cockpit",
+    "chatgpt",
+    "codex",
+    "proxy"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}

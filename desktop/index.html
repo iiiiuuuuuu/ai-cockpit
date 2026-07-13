@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Cockpit</title>
+    <link rel="stylesheet" href="./src/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell" aria-live="polite">
+      <aside class="sidebar">
+        <div class="brand-row">
+          <span class="brand-mark" data-brand-icon="minimal-switch" aria-hidden="true">
+            <svg class="brand-glyph" viewBox="0 0 72 72" role="img">
+              <path class="brand-glyph-quiet-path" d="M17 28h12c12 0 13 17 25 17"></path>
+              <path class="brand-glyph-active-path" d="M17 45h12c12 0 13-17 25-17"></path>
+              <circle class="brand-glyph-quiet-node" cx="17" cy="28" r="4.7"></circle>
+              <circle class="brand-glyph-active-node" cx="17" cy="45" r="5"></circle>
+              <circle class="brand-glyph-selected-node" cx="54" cy="36" r="5.2"></circle>
+            </svg>
+          </span>
+          <div class="brand-copy">
+            <div class="brand-title-line">
+              <span class="brand-title">AI Cockpit</span>
+            </div>
+            <div class="service-status" id="serviceStatusLabel" data-state="stopped">
+              <span class="status-dot" aria-hidden="true"></span>
+              <span id="serviceStatusText">未开启</span>
+            </div>
+          </div>
+        </div>
+
+        <nav class="side-nav" aria-label="页面">
+          <button class="nav-item active" type="button" data-page="accounts" id="accountsNavButton">
+            <span class="nav-icon chatgpt-nav-icon" aria-hidden="true">
+              <img src="./src/assets/chatgpt-mark.png" alt="" />
+            </span>
+            <span>账号</span>
+          </button>
+          <button class="nav-item" type="button" data-page="settings" id="settingsNavButton">
+            <span class="nav-icon settings-nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M9.4 3.6 8.9 6a7.6 7.6 0 0 0-1.4.8l-2.3-.8-1.8 3.1 1.8 1.6a7.5 7.5 0 0 0 0 1.6l-1.8 1.6 1.8 3.1 2.3-.8c.4.3.9.6 1.4.8l.5 2.4h3.6l.5-2.4c.5-.2 1-.5 1.4-.8l2.3.8 1.8-3.1-1.8-1.6a7.5 7.5 0 0 0 0-1.6l1.8-1.6L17.2 6l-2.3.8a7.6 7.6 0 0 0-1.4-.8L13 3.6H9.4Z"></path>
+                <circle cx="11.2" cy="12" r="2.7"></circle>
+              </svg>
+            </span>
+            <span>设置</span>
+            <span class="nav-update-badge" id="settingsUpdateBadge" aria-label="有新版本" hidden></span>
+          </button>
+        </nav>
+      </aside>
+
+      <section class="content-area">
+        <section class="page active" data-page="accounts" id="accountsPage">
+          <header class="content-toolbar">
+            <div class="toolbar-left">
+              <div class="search-field">
+                <span aria-hidden="true">⌕</span>
+                <input id="accountSearchInput" type="search" placeholder="搜索账号名、邮箱、备注" autocomplete="off" />
+              </div>
+              <div class="segmented" aria-label="账号类型筛选">
+                <button class="segment active" type="button" data-filter-type="all">全部 <span class="segment-count" data-filter-count="all">0</span></button>
+                <button class="segment" type="button" data-filter-type="token">Token <span class="segment-count" data-filter-count="token">0</span></button>
+                <button class="segment" type="button" data-filter-type="apikey">API Key <span class="segment-count" data-filter-count="apikey">0</span></button>
+              </div>
+              <button class="deleted-filter-button" type="button" data-filter-type="deleted" hidden>
+                <svg class="deleted-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
+                  <path d="M4.5 6.5h11M8 3.5h4l1 2H7l1-2Zm-2 3 .7 10h6.6l.7-10M8.5 9v4.5M11.5 9v4.5"></path>
+                </svg>
+                <span>已删除</span>
+                <span class="segment-count" data-filter-count="deleted">0</span>
+              </button>
+              <select id="accountSortSelect" aria-label="账号排序">
+                <option value="default">默认排序</option>
+                <option value="primaryQuota">按 5 小时配额</option>
+                <option value="weeklyQuota">按周配额</option>
+              </select>
+              <button class="icon-button" type="button" id="sortDirectionButton" title="切换升降序" aria-label="切换升降序">↓</button>
+            </div>
+            <div class="toolbar-actions">
+              <button class="small-button add-account-button" type="button" id="openAddAccountModalButton">添加账号</button>
+            </div>
+          </header>
+
+          <div class="routing-summary" id="routingSummary">使用偏好：Token 优先&nbsp;&nbsp;|&nbsp;&nbsp;自动切换：● 已开启</div>
+
+          <section class="accounts-grid" id="accountsGrid" aria-label="账号列表"></section>
+
+          <section class="empty-state" id="emptyAccountsState" hidden>
+            <div class="empty-icon" aria-hidden="true">+</div>
+            <div class="empty-title">还没有账号</div>
+            <button class="primary-button" type="button" id="emptyAddAccountButton">添加账号</button>
+          </section>
+        </section>
+
+        <section class="page" data-page="settings" id="settingsPage">
+          <div class="settings-stack">
+            <section class="settings-section" aria-label="基础配置">
+              <h2 class="settings-section-title">基础配置</h2>
+              <div class="settings-group">
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span>主题模式</span>
+                  </div>
+                  <div class="theme-segmented" id="themeModeControl" role="group" aria-label="主题模式">
+                    <button class="theme-segment active" type="button" data-theme-mode="light" aria-pressed="true">浅色</button>
+                    <button class="theme-segment" type="button" data-theme-mode="dark" aria-pressed="false">深色</button>
+                    <button class="theme-segment" type="button" data-theme-mode="system" aria-pressed="false">系统</button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-section" aria-label="本地服务">
+              <h2 class="settings-section-title">本地服务</h2>
+              <div class="settings-group">
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span>AI Cockpit 服务</span>
+                  </div>
+                  <button class="small-button primary-service-button" type="button" id="serviceToggleButton">启动服务</button>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span>服务端口</span>
+                    <small class="setting-description">客户端连接 AI Cockpit 使用的端口；服务运行中修改会立即切换。</small>
+                  </div>
+                  <input class="port-input" id="settingsServicePortInput" type="text" inputmode="numeric" pattern="[0-9]*" value="3009" />
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span>代理端口</span>
+                    <small class="setting-description">可选；填写后，上游请求会通过这个本机代理端口转发。</small>
+                  </div>
+                  <input class="port-input" id="settingsProxyPortInput" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="未设置" />
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-section" aria-label="访问令牌">
+              <h2 class="settings-section-title">访问令牌</h2>
+              <div class="settings-group">
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span>令牌管理</span>
+                    <button class="info-dot" type="button" aria-label="令牌管理说明" data-tooltip="用于保护 AI Cockpit 本地入口。添加时会自动生成令牌，客户端请求需携带。">?</button>
+                  </div>
+                  <button class="small-button token-add-button" type="button" id="openTokenModalButton">添加</button>
+                </div>
+                <div class="access-tokens-list" id="accessTokensList"></div>
+              </div>
+            </section>
+
+            <section class="settings-section" aria-label="使用偏好">
+              <h2 class="settings-section-title">使用偏好</h2>
+              <div class="settings-group">
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span>优先使用</span>
+                  </div>
+                  <select class="preference-select" id="routingPreferenceSelect">
+                    <option value="token_first">Token 优先</option>
+                    <option value="apikey_first">API Key 优先</option>
+                    <option value="token_only">仅 Token</option>
+                    <option value="apikey_only">仅 API Key</option>
+                  </select>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span>自动切换</span>
+                    <button class="info-dot" type="button" aria-label="自动切换说明" data-tooltip="开启后，当前账号不可用时会按使用偏好切换到可用账号。">?</button>
+                  </div>
+                  <label class="switch">
+                    <input id="autoSwitchInput" type="checkbox" checked />
+                    <span aria-hidden="true"></span>
+                  </label>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-section" aria-label="关于">
+              <h2 class="settings-section-title">关于</h2>
+              <div class="settings-group">
+                <div class="setting-row">
+                  <div class="setting-label">
+                    <span>AI Cockpit</span>
+                    <small class="setting-description" id="currentVersionText">当前版本</small>
+                  </div>
+                  <button class="small-button update-button" type="button" id="checkUpdateButton">检查更新</button>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <div class="modal-backdrop" id="accountModal" hidden>
+      <form class="modal account-modal" id="accountForm">
+        <div class="modal-header">
+          <div>
+            <div class="modal-title" id="accountModalTitle">添加账号</div>
+            <div class="modal-subtitle" id="accountModalSubtitle">Token 模式用于 Codex 登录态账号；API Key 模式默认按 ChatGPT/OpenAI 兼容上游使用。</div>
+          </div>
+          <button class="icon-button" type="button" data-close-modal="accountModal" aria-label="关闭">×</button>
+        </div>
+
+        <div class="mode-tabs" id="accountModeTabs">
+          <button class="mode-tab mode-card active" type="button" data-account-mode="token">
+            <span class="radio-dot" aria-hidden="true"></span>
+            <span>
+              <strong>Token</strong>
+              <small>粘贴 AuthSession JSON，适合 Codex 登录态账号。</small>
+            </span>
+          </button>
+          <button class="mode-tab mode-card" type="button" data-account-mode="apikey">
+            <span class="radio-dot" aria-hidden="true"></span>
+            <span>
+              <strong>API Key</strong>
+              <small>填写 Base URL、API Key 和备注。</small>
+            </span>
+          </button>
+        </div>
+
+        <div class="modal-body">
+          <section class="mode-panel active" id="tokenAccountPanel">
+            <div class="form-columns">
+              <section class="form-panel">
+                <div class="panel-head"><strong>账号字段</strong><span id="tokenParseStatus">尚未解析</span></div>
+                <div class="form-grid two-columns">
+                  <label class="field">
+                    <span class="field-label-line"><span class="field-name">邮箱账号</span><span class="optional-pill">可选</span></span>
+                    <input id="tokenEmailInput" type="email" autocomplete="off" placeholder="user@example.com" />
+                    <small>解析后自动填充。</small>
+                  </label>
+                  <label class="field">
+                    <span class="field-label-line"><span class="field-name">别名</span><span class="optional-pill">可选</span></span>
+                    <input id="tokenAliasInput" type="text" autocomplete="off" placeholder="例如：主账号" />
+                    <small>用于账号卡片展示。</small>
+                  </label>
+                  <label class="field">
+                    <span class="field-label-line"><span class="field-name">金额（元）</span><span class="optional-pill">可选</span></span>
+                    <input id="tokenPriceInput" type="number" min="0" step="0.01" inputmode="decimal" placeholder="例如：20" />
+                    <small>仅展示成本。</small>
+                  </label>
+                  <label class="field">
+                    <span class="field-label-line"><span class="field-name">开始使用时间</span><span class="optional-pill">可选</span></span>
+                    <input class="datetime-input" id="tokenStartedAtInput" type="datetime-local" step="60" aria-label="开始使用时间" />
+                    <small>用于计算使用天数。</small>
+                  </label>
+                  <label class="field">
+                    <span class="field-label-line"><span class="field-name">停止使用时间</span><span class="optional-pill">可选</span></span>
+                    <input class="datetime-input" id="tokenStoppedAtInput" type="datetime-local" step="60" aria-label="停止使用时间" />
+                    <small>停止使用后会固定使用天数。</small>
+                  </label>
+                  <label class="field">
+                    <span class="field-label-line"><span class="field-name">account_id</span><span class="optional-pill">可选</span></span>
+                    <input id="tokenAccountIdInput" type="text" autocomplete="off" placeholder="account-id" />
+                    <small>有账号或 workspace ID 时会自动关联展示。</small>
+                  </label>
+                  <label class="field">
+                    <span class="field-label-line"><span class="field-name">client_id</span><span class="optional-pill">可选</span></span>
+                    <input id="tokenClientIdInput" type="text" autocomplete="off" placeholder="client_id" />
+                    <small>用于刷新 token。</small>
+                  </label>
+                  <label class="field">
+                    <span class="field-label-line"><span class="field-name">access_token</span><span class="required-pill">必填</span></span>
+                    <span class="secret-input">
+                      <input id="tokenAccessTokenInput" type="password" autocomplete="off" required placeholder="••••••••••••••••" />
+                      <button class="secret-toggle" type="button" data-secret-toggle="tokenAccessTokenInput" title="显示明文" aria-label="显示 access_token 明文">
+                        <svg class="secret-eye-icon" viewBox="0 0 20 20" aria-hidden="true">
+                          <path d="M2.5 10s2.8-4.5 7.5-4.5 7.5 4.5 7.5 4.5-2.8 4.5-7.5 4.5S2.5 10 2.5 10Z"></path>
+                          <circle cx="10" cy="10" r="2.2"></circle>
+                        </svg>
+                      </button>
+                    </span>
+                    <small>请求鉴权 token。</small>
+                  </label>
+                  <label class="field">
+                    <span class="field-label-line"><span class="field-name">refresh_token</span><span class="optional-pill">可选</span></span>
+                    <span class="secret-input">
+                      <input id="tokenRefreshTokenInput" type="password" autocomplete="off" placeholder="••••••••••••••••" />
+                      <button class="secret-toggle" type="button" data-secret-toggle="tokenRefreshTokenInput" title="显示明文" aria-label="显示 refresh_token 明文">
+                        <svg class="secret-eye-icon" viewBox="0 0 20 20" aria-hidden="true">
+                          <path d="M2.5 10s2.8-4.5 7.5-4.5 7.5 4.5 7.5 4.5-2.8 4.5-7.5 4.5S2.5 10 2.5 10Z"></path>
+                          <circle cx="10" cy="10" r="2.2"></circle>
+                        </svg>
+                      </button>
+                    </span>
+                    <small>用于自动续期。</small>
+                  </label>
+                </div>
+              </section>
+              <aside class="form-panel soft json-helper">
+                <div class="panel-head"><strong>Token 信息辅助填充</strong><span>推荐</span></div>
+                <div class="helper-block"><strong>方式一：ChatGPT 网页</strong><p>用无痕窗口登录 ChatGPT，访问 AuthSession，复制返回的 JSON。</p></div>
+                <div class="helper-block"><strong>方式二：Codex auth.json</strong><p>复制 .codex/auth.json 里的 token 信息；完成后清空 auth.json 并退出 Codex。</p></div>
+                <div class="json-helper-head">
+                  <label for="tokenJsonInput">Token JSON</label>
+                  <button class="parse-json-button" type="button" id="parseTokenJsonButton">解析 JSON</button>
+                </div>
+                <textarea id="tokenJsonInput" spellcheck="false" rows="7" placeholder='{
+  "user": {
+    "email": "user@example.com"
+  },
+  "accessToken": "access-token",
+  "refreshToken": "refresh-token",
+  "account": {
+    "id": "account-id"
+  }
+}'></textarea>
+                <div class="helper-block muted-helper"><p>支持提取 accessToken、refresh_token、account.id、user.email 和 client_id。</p></div>
+                <div class="inline-message" id="tokenJsonFeedback"></div>
+              </aside>
+            </div>
+          </section>
+
+          <section class="mode-panel" id="apiKeyAccountPanel">
+            <section class="form-panel">
+              <div class="panel-head"><strong>API Key 上游</strong><span>不做额度检查</span></div>
+              <div class="form-grid">
+                <label class="field">
+                  <span class="field-label-line"><span class="field-name">Base URL</span><span class="required-pill">必填</span></span>
+                  <input id="apiKeyBaseUrlInput" type="url" autocomplete="off" required placeholder="https://api.openai.com/v1" />
+                  <small>ChatGPT/OpenAI 兼容上游地址。</small>
+                </label>
+                <label class="field">
+                  <span class="field-label-line"><span class="field-name">API Key</span><span class="required-pill">必填</span></span>
+                  <span class="secret-input">
+                    <input id="apiKeySecretInput" type="password" autocomplete="off" required />
+                    <button class="secret-toggle" type="button" data-secret-toggle="apiKeySecretInput" title="显示明文" aria-label="显示 API Key 明文">
+                      <svg class="secret-eye-icon" viewBox="0 0 20 20" aria-hidden="true">
+                        <path d="M2.5 10s2.8-4.5 7.5-4.5 7.5 4.5 7.5 4.5-2.8 4.5-7.5 4.5S2.5 10 2.5 10Z"></path>
+                        <circle cx="10" cy="10" r="2.2"></circle>
+                      </svg>
+                    </button>
+                  </span>
+                  <small>上游请求鉴权密钥。</small>
+                </label>
+                <label class="field">
+                  <span class="field-label-line"><span class="field-name">备注</span><span class="optional-pill">可选</span></span>
+                  <input id="apiKeyDescriptionInput" type="text" autocomplete="off" />
+                  <small>用于账号卡片展示。</small>
+                </label>
+                <div class="form-grid two-columns">
+                  <label class="field">
+                    <span class="field-label-line"><span class="field-name">金额（元）</span><span class="optional-pill">可选</span></span>
+                    <input id="apiKeyPriceInput" type="number" min="0" step="0.01" inputmode="decimal" placeholder="例如：20" />
+                    <small>仅展示成本。</small>
+                  </label>
+                  <label class="field">
+                    <span class="field-label-line"><span class="field-name">开始使用时间</span><span class="optional-pill">可选</span></span>
+                    <input class="datetime-input" id="apiKeyStartedAtInput" type="datetime-local" step="60" aria-label="开始使用时间" />
+                    <small>用于计算使用天数。</small>
+                  </label>
+                  <label class="field">
+                    <span class="field-label-line"><span class="field-name">停止使用时间</span><span class="optional-pill">可选</span></span>
+                    <input class="datetime-input" id="apiKeyStoppedAtInput" type="datetime-local" step="60" aria-label="停止使用时间" />
+                    <small>停止使用后会固定使用天数。</small>
+                  </label>
+                </div>
+                <div class="helper-block">
+                  <p>保存后会出现在首页账号卡片中；刷新会按 ChatGPT/OpenAI 兼容接口测试上游是否可用，不展示 5 小时或周配额。</p>
+                </div>
+              </div>
+            </section>
+          </section>
+        </div>
+
+        <div class="modal-footer">
+          <button class="dialog-button dialog-button-secondary" type="button" data-close-modal="accountModal">取消</button>
+          <button class="dialog-button dialog-button-primary" type="submit" id="saveAccountButton">添加 Token 账号</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="modal-backdrop" id="tokenModal" hidden>
+      <form class="modal token-modal" id="tokenForm">
+        <div class="modal-header">
+          <div>
+            <div class="modal-title">添加令牌</div>
+            <div class="modal-subtitle">点击添加后自动生成一个入口访问令牌。</div>
+          </div>
+          <button class="icon-button" type="button" data-close-modal="tokenModal" aria-label="关闭">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="generated-token-preview">将生成 sk-ai-cockpit- 开头的随机令牌，保存后可在列表中复制。</div>
+        </div>
+        <div class="modal-footer">
+          <button class="dialog-button dialog-button-secondary" type="button" data-close-modal="tokenModal">取消</button>
+          <button class="dialog-button dialog-button-primary" type="submit">生成并保存</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="modal-backdrop" id="confirmModal" hidden>
+      <section class="modal confirm-modal" id="confirmModalDialog" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle" aria-describedby="confirmModalMessage" tabindex="-1">
+        <div class="modal-header">
+          <div>
+            <div class="modal-title" id="confirmModalTitle">确认操作</div>
+          </div>
+          <button class="icon-button" type="button" id="confirmModalCloseButton" aria-label="关闭">×</button>
+        </div>
+        <div class="confirm-body">
+          <p id="confirmModalMessage"></p>
+        </div>
+        <div class="modal-footer">
+          <button class="dialog-button dialog-button-secondary" type="button" id="confirmModalCancelButton">取消</button>
+          <button class="dialog-button dialog-button-danger-outline" type="button" id="confirmModalSecondaryButton">彻底删除</button>
+          <button class="dialog-button dialog-button-primary" type="button" id="confirmModalPrimaryButton">确认</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>

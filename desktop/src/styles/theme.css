@@ -1,0 +1,240 @@
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #202126;
+  --window: #24252a;
+  --sidebar: #292a30;
+  --panel: #303137;
+  --text: #f2f2f4;
+  --muted: #aaaab1;
+  --soft: #898991;
+  --line: #484950;
+  --line-strong: #60616a;
+  --accent: #4da3ff;
+  --accent-text: #07111d;
+  --blue-soft: #19344f;
+  --green: #4ad0a0;
+  --green-soft: #17392e;
+  --red: #ff7181;
+  --red-soft: #472129;
+  --orange: #f1ad55;
+  --orange-soft: #44311c;
+  --chip: #414249;
+  --shadow: 0 20px 54px rgba(0, 0, 0, 0.42);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] input,
+:root[data-theme="dark"] select,
+:root[data-theme="dark"] textarea,
+:root[data-theme="dark"] .search-field,
+:root[data-theme="dark"] .segmented,
+:root[data-theme="dark"] .deleted-filter-button,
+:root[data-theme="dark"] .icon-button,
+:root[data-theme="dark"] .small-button,
+:root[data-theme="dark"] .danger-button,
+:root[data-theme="dark"] .mini-button,
+:root[data-theme="dark"] .icon,
+:root[data-theme="dark"] .dialog-button-secondary,
+:root[data-theme="dark"] .dialog-button-danger-outline,
+:root[data-theme="dark"] .mode-card,
+:root[data-theme="dark"] .radio-dot,
+:root[data-theme="dark"] .form-panel,
+:root[data-theme="dark"] .helper-block {
+  background: #3a3b42;
+}
+
+:root[data-theme="dark"] .primary-button,
+:root[data-theme="dark"] .add-account-button,
+:root[data-theme="dark"] .primary-service-button,
+:root[data-theme="dark"] .parse-json-button,
+:root[data-theme="dark"] .dialog-button-primary {
+  border-color: #1876c9;
+  color: #fff;
+  background: #1876c9;
+}
+
+:root[data-theme="dark"] .primary-service-button.stop-action {
+  border-color: #5b5d66;
+  color: var(--text);
+  background: #3a3b42;
+}
+
+:root[data-theme="dark"] .primary-service-button.stop-action:hover,
+:root[data-theme="dark"] .primary-service-button.stop-action.loading {
+  border-color: rgba(255, 113, 129, 0.48);
+  color: var(--red);
+  background: var(--red-soft);
+}
+
+:root[data-theme="dark"] .sidebar {
+  background: var(--sidebar);
+}
+
+:root[data-theme="dark"] .brand-mark {
+  border-color: #4a4e57;
+  color: var(--text);
+  background: linear-gradient(145deg, #444750, #303741);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 8px 18px rgba(0, 0, 0, 0.28);
+}
+
+:root[data-theme="dark"] .brand-glyph-quiet-path {
+  stroke: #596473;
+}
+
+:root[data-theme="dark"] .brand-glyph-active-path {
+  stroke: #f0f2f5;
+}
+
+:root[data-theme="dark"] .brand-glyph-quiet-node {
+  fill: #292d34;
+  stroke: #667384;
+}
+
+:root[data-theme="dark"] .brand-glyph-active-node {
+  fill: #f0f2f5;
+}
+
+:root[data-theme="dark"] .nav-item,
+:root[data-theme="dark"] .segment,
+:root[data-theme="dark"] .deleted-filter-button,
+:root[data-theme="dark"] #accountSortSelect {
+  color: #c5c5ca;
+}
+
+:root[data-theme="dark"] .nav-item.active {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+:root[data-theme="dark"] .chatgpt-nav-icon img {
+  filter: invert(1);
+}
+
+:root[data-theme="dark"] .segment-count,
+:root[data-theme="dark"] .routing-summary .off {
+  color: #9898a0;
+}
+
+:root[data-theme="dark"] .routing-summary .separator,
+:root[data-theme="dark"] .track,
+:root[data-theme="dark"] .switch span {
+  background: #55565e;
+}
+
+:root[data-theme="dark"] .account-card,
+:root[data-theme="dark"] .settings-group,
+:root[data-theme="dark"] .modal {
+  border-color: #44454c;
+}
+
+:root[data-theme="dark"] .account-card.deleted {
+  background: var(--panel);
+}
+
+:root[data-theme="dark"] .account-card.current:not(.unavailable) {
+  border-color: #3479ba;
+  outline-color: rgba(77, 163, 255, 0.25);
+}
+
+:root[data-theme="dark"] .icon {
+  color: #9fadc0;
+}
+
+:root[data-theme="dark"] .type-pill,
+:root[data-theme="dark"] .type-pill.apikey,
+:root[data-theme="dark"] .hint,
+:root[data-theme="dark"] .generated-token-preview,
+:root[data-theme="dark"] .muted-helper,
+:root[data-theme="dark"] .form-panel.soft {
+  border-color: #3a4655;
+  color: #aab8c9;
+  background: #343b45;
+}
+
+:root[data-theme="dark"] .empty-state {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+:root[data-theme="dark"] .empty-icon {
+  background: var(--blue-soft);
+}
+
+:root[data-theme="dark"] .settings-section-title,
+:root[data-theme="dark"] .info-dot,
+:root[data-theme="dark"] .optional-pill,
+:root[data-theme="dark"] .field-name,
+:root[data-theme="dark"] .json-helper-head label {
+  color: #aaaeb8;
+}
+
+:root[data-theme="dark"] .settings-group {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+:root[data-theme="dark"] .theme-segmented {
+  border-color: rgba(77, 163, 255, 0.72);
+  background: #3a3b42;
+}
+
+:root[data-theme="dark"] .theme-segment + .theme-segment {
+  border-left-color: rgba(77, 163, 255, 0.48);
+}
+
+:root[data-theme="dark"] .theme-segment.active {
+  color: #fff;
+  background: #1876c9;
+}
+
+:root[data-theme="dark"] .info-dot {
+  border-color: #686b75;
+}
+
+:root[data-theme="dark"] .switch span::after {
+  background: #f3f3f5;
+}
+
+:root[data-theme="dark"] .switch input:checked + span {
+  background: #34c759;
+}
+
+:root[data-theme="dark"] .modal-backdrop {
+  background: rgba(0, 0, 0, 0.56);
+}
+
+:root[data-theme="dark"] .modal-header,
+:root[data-theme="dark"] .modal-footer,
+:root[data-theme="dark"] .confirm-modal .modal-header,
+:root[data-theme="dark"] .confirm-modal .modal-footer,
+:root[data-theme="dark"] .confirm-body,
+:root[data-theme="dark"] .mode-tabs {
+  background: var(--panel);
+}
+
+:root[data-theme="dark"] .dialog-button-secondary:hover {
+  border-color: #666872;
+  background: #484950;
+}
+
+:root[data-theme="dark"] .dialog-button-secondary {
+  border-color: #555760;
+  color: var(--text);
+}
+
+:root[data-theme="dark"] .mode-card.active {
+  border-color: rgba(77, 163, 255, 0.62);
+  background: #29445d;
+}
+
+:root[data-theme="dark"] .secret-toggle,
+:root[data-theme="dark"] .readonly-pair,
+:root[data-theme="dark"] .optional-pill {
+  background: #3a3b42;
+}
+
+:root[data-theme="dark"] input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+}

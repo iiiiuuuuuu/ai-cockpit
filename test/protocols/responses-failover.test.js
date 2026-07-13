@@ -1,0 +1,299 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { PassThrough } = require('node:stream');
+
+const {
+  applyResponsesFailoverRequestHeaders,
+  buildResponsesClientVisibleErrorPayload,
+  classifyResponsesClientVisibleError,
+  classifyRetryableResponsesHttpError,
+  createResponsesEventStreamInspector,
+  isInspectableResponsesEventStream,
+  drainAbandonedResponse,
+} = require('../../app/protocols/responses-failover');
+
+test('classifyRetryableResponsesHttpError detects usage_limit_reached', () => {
+  const result = classifyRetryableResponsesHttpError({
+    statusCode: 429,
+    bodyText: JSON.stringify({
+      error: {
+        type: 'usage_limit_reached',
+        plan_type: 'plus',
+      },
+    }),
+  });
+
+  assert.deepEqual(result, {
+    reason: 'responses_usage_limit_reached',
+    retryKey: 'usage_limit_reached',
+    retrySource: 'http',
+  });
+});
+
+test('classifyRetryableResponsesHttpError detects raw usage limit messages', () => {
+  const result = classifyRetryableResponsesHttpError({
+    statusCode: 429,
+    bodyText: "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 3:22 PM.",
+  });
+
+  assert.deepEqual(result, {
+    reason: 'responses_usage_limit_reached',
+    retryKey: 'usage_limit_reached',
+    retrySource: 'http',
+  });
+});
+
+test('classifyRetryableResponsesHttpError falls back to usage limit messages when error type is unknown', () => {
+  const result = classifyRetryableResponsesHttpError({
+    statusCode: 429,
+    bodyText: JSON.stringify({
+      error: {
+        type: 'rate_limit_error',
+        message: "You've hit your usage limit. Upgrade to Pro.",
+      },
+    }),
+  });
+
+  assert.deepEqual(result, {
+    reason: 'responses_usage_limit_reached',
+    retryKey: 'usage_limit_reached',
+    retrySource: 'http',
+  });
+});
+
+test('classifyRetryableResponsesHttpError detects usage_not_included', () => {
+  const result = classifyRetryableResponsesHttpError({
+    statusCode: 429,
+    bodyText: JSON.stringify({
+      error: {
+        type: 'usage_not_included',
+      },
+    }),
+  });
+
+  assert.deepEqual(result, {
+    reason: 'responses_usage_not_included',
+    retryKey: 'usage_not_included',
+    retrySource: 'http',
+  });
+});
+
+test('classifyRetryableResponsesHttpError detects unauthorized detail payloads', () => {
+  const result = classifyRetryableResponsesHttpError({
+    statusCode: 401,
+    bodyText: JSON.stringify({
+      detail: 'Unauthorized',
+    }),
+  });
+
+  assert.deepEqual(result, {
+    reason: 'missing_credentials',
+    retryKey: 'unauthorized',
+    retrySource: 'http',
+  });
+});
+
+test('classifyRetryableResponsesHttpError detects revoked oauth token payloads', () => {
+  const result = classifyRetryableResponsesHttpError({
+    statusCode: 401,
+    bodyText: JSON.stringify({
+      detail: 'Encountered invalidated oauth token for user, failing request',
+      error: {
+        code: 'token_revoked',
+      },
+    }),
+  });
+
+  assert.deepEqual(result, {
+    reason: 'missing_credentials',
+    retryKey: 'token_revoked',
+    retrySource: 'http',
+  });
+});
+
+test('classifyRetryableResponsesHttpError detects token_revoked in raw error text', () => {
+  const result = classifyRetryableResponsesHttpError({
+    statusCode: 401,
+    bodyText: 'unexpected status 401 Unauthorized: Encountered invalidated oauth token for user, auth error code: token_revoked',
+  });
+
+  assert.deepEqual(result, {
+    reason: 'missing_credentials',
+    retryKey: 'token_revoked',
+    retrySource: 'http',
+  });
+});
+
+test('classifyRetryableResponsesHttpError ignores non-retryable payloads', () => {
+  const result = classifyRetryableResponsesHttpError({
+    statusCode: 503,
+    bodyText: JSON.stringify({
+      error: {
+        code: 'server_is_overloaded',
+      },
+    }),
+  });
+
+  assert.equal(result, null);
+});
+
+test('classifyResponsesClientVisibleError rewrites encrypted content affinity mismatches', () => {
+  const result = classifyResponsesClientVisibleError({
+    statusCode: 502,
+    bodyText: 'unexpected status 502 Bad Gateway: request failed with status: 400 Bad Request {"error":{"message":"The encrypted content gAAA... could not be verified. Reason: Encrypted content could not be decrypted or parsed. This error occurs when load balancing Responses API across deployments with different API keys. Enable encrypted_content_affinity."}}',
+  });
+
+  assert.deepEqual(result, {
+    reason: 'responses_session_context_incompatible',
+    statusCode: 400,
+    errorCode: 'session_context_incompatible',
+    message: '切换账号后旧会话上下文不兼容，请新开会话',
+  });
+  assert.deepEqual(buildResponsesClientVisibleErrorPayload(result), {
+    error: {
+      type: 'invalid_request_error',
+      code: 'session_context_incompatible',
+      message: '切换账号后旧会话上下文不兼容，请新开会话',
+    },
+    message: '切换账号后旧会话上下文不兼容，请新开会话',
+  });
+});
+
+test('createResponsesEventStreamInspector catches insufficient_quota failures', () => {
+  const inspector = createResponsesEventStreamInspector();
+
+  const result = inspector.push(Buffer.from(
+    'data: {"type":"response.failed","response":{"error":{"code":"insufficient_quota"}}}\n\n',
+    'utf8',
+  ));
+
+  assert.deepEqual(result, {
+    action: 'retry',
+    reason: 'responses_insufficient_quota',
+    retryKey: 'insufficient_quota',
+    retrySource: 'stream',
+  });
+});
+
+test('createResponsesEventStreamInspector ignores prelude events and retries usage_not_included', () => {
+  const inspector = createResponsesEventStreamInspector();
+
+  const firstResult = inspector.push(Buffer.from(
+    'data: {"type":"response.created","response":{"id":"resp_123"}}\n\n',
+    'utf8',
+  ));
+  const secondResult = inspector.push(Buffer.from(
+    'data: {"type":"response.failed","response":{"error":{"code":"usage_not_included"}}}\n\n',
+    'utf8',
+  ));
+
+  assert.deepEqual(firstResult, { action: 'pending' });
+  assert.deepEqual(secondResult, {
+    action: 'retry',
+    reason: 'responses_usage_not_included',
+    retryKey: 'usage_not_included',
+    retrySource: 'stream',
+  });
+});
+
+test('createResponsesEventStreamInspector retries usage_limit_reached stream failures', () => {
+  const inspector = createResponsesEventStreamInspector();
+
+  const firstResult = inspector.push(Buffer.from(
+    'data: {"type":"response.created","response":{"id":"resp_123"}}\n\n',
+    'utf8',
+  ));
+  const secondResult = inspector.push(Buffer.from(
+    'data: {"type":"response.failed","response":{"error":{"code":"usage_limit_reached","message":"You\\u0027ve hit your usage limit."}}}\n\n',
+    'utf8',
+  ));
+
+  assert.deepEqual(firstResult, { action: 'pending' });
+  assert.deepEqual(secondResult, {
+    action: 'retry',
+    reason: 'responses_usage_limit_reached',
+    retryKey: 'usage_limit_reached',
+    retrySource: 'stream',
+  });
+});
+
+test('createResponsesEventStreamInspector retries usage limit messages without an error code', () => {
+  const inspector = createResponsesEventStreamInspector();
+
+  const result = inspector.push(Buffer.from(
+    'data: {"type":"response.failed","response":{"error":{"message":"You\\u0027ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 3:22 PM."}}}\n\n',
+    'utf8',
+  ));
+
+  assert.deepEqual(result, {
+    action: 'retry',
+    reason: 'responses_usage_limit_reached',
+    retryKey: 'usage_limit_reached',
+    retrySource: 'stream',
+  });
+});
+
+test('createResponsesEventStreamInspector falls back to usage limit messages when error code is unknown', () => {
+  const inspector = createResponsesEventStreamInspector();
+
+  const result = inspector.push(Buffer.from(
+    'data: {"type":"response.failed","response":{"error":{"code":"rate_limit_error","message":"You\\u0027ve hit your usage limit. Upgrade to Pro."}}}\n\n',
+    'utf8',
+  ));
+
+  assert.deepEqual(result, {
+    action: 'retry',
+    reason: 'responses_usage_limit_reached',
+    retryKey: 'usage_limit_reached',
+    retrySource: 'stream',
+  });
+});
+
+test('createResponsesEventStreamInspector passes through on the first non-prelude event', () => {
+  const inspector = createResponsesEventStreamInspector();
+
+  const result = inspector.push(Buffer.from(
+    'data: {"type":"response.output_text.delta","delta":"hello"}\n\n',
+    'utf8',
+  ));
+
+  assert.deepEqual(result, { action: 'pass' });
+});
+
+test('applyResponsesFailoverRequestHeaders forces identity encoding for responses requests', () => {
+  const headers = applyResponsesFailoverRequestHeaders({
+    'accept-encoding': 'gzip, br',
+    accept: 'text/event-stream',
+  }, '/backend-api/codex/responses');
+
+  assert.equal(headers['accept-encoding'], 'identity');
+  assert.equal(headers.accept, 'text/event-stream');
+});
+
+test('applyResponsesFailoverRequestHeaders leaves non-responses requests unchanged', () => {
+  const headers = applyResponsesFailoverRequestHeaders({
+    'accept-encoding': 'gzip, br',
+  }, '/backend-api/codex/models');
+
+  assert.equal(headers['accept-encoding'], 'gzip, br');
+});
+
+test('isInspectableResponsesEventStream accepts gzip-encoded event streams', () => {
+  assert.equal(isInspectableResponsesEventStream({
+    'content-type': 'text/event-stream',
+    'content-encoding': 'gzip',
+  }), true);
+});
+
+test('drainAbandonedResponse attaches a temporary error listener and cleans up after close', async () => {
+  const response = new PassThrough();
+  response.complete = false;
+
+  const drained = drainAbandonedResponse(response);
+  assert.equal(response.listenerCount('error') > 0, true);
+
+  response.end('done');
+  await drained;
+
+  assert.equal(response.listenerCount('error'), 0);
+});

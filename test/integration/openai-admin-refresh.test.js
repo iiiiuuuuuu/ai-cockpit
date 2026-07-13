@@ -1,0 +1,170 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+
+const { EventEmitter } = require('node:events');
+
+const {
+  activateConfigAdminResponse,
+  refreshConfigAdminResponse,
+  refreshSingleConfigAdminResponse,
+  reportBusinessRequestError,
+  registerProcessSafetyHandlers,
+} = require('../../openai');
+
+test('refreshConfigAdminResponse refreshes all quotas before building the admin snapshot in token mode', async () => {
+  const calls = [];
+  const manager = {
+    refreshQuotas: async reason => {
+      calls.push(reason);
+    },
+  };
+  const expectedResponse = {
+    mode: 'token',
+    configs: [],
+  };
+
+  const response = await refreshConfigAdminResponse({
+    accountManager: manager,
+    shouldRefreshQuota: true,
+    buildResponse: () => expectedResponse,
+  });
+
+  assert.deepEqual(calls, ['admin_refresh']);
+  assert.equal(response, expectedResponse);
+});
+
+test('refreshConfigAdminResponse skips quota refresh when no token configs exist', async () => {
+  let called = false;
+  const manager = {
+    refreshQuotas: async () => {
+      called = true;
+    },
+  };
+  const expectedResponse = {
+    mode: 'apikey',
+    configs: [],
+  };
+
+  const response = await refreshConfigAdminResponse({
+    accountManager: manager,
+    shouldRefreshQuota: false,
+    buildResponse: () => expectedResponse,
+  });
+
+  assert.equal(called, false);
+  assert.equal(response, expectedResponse);
+});
+
+test('refreshSingleConfigAdminResponse refreshes one runtime config before building the admin snapshot', async () => {
+  const calls = [];
+  const manager = {
+    refreshConfig: async (index, reason) => {
+      calls.push([index, reason]);
+    },
+  };
+  const expectedResponse = {
+    configs: [
+      {
+        index: 1,
+      },
+    ],
+  };
+
+  const response = await refreshSingleConfigAdminResponse(1, {
+    accountManager: manager,
+    buildResponse: () => expectedResponse,
+  });
+
+  assert.deepEqual(calls, [[1, 'admin_refresh_single']]);
+  assert.equal(response, expectedResponse);
+});
+
+test('refreshSingleConfigAdminResponse wraps invalid single refresh errors', async () => {
+  await assert.rejects(
+    () => refreshSingleConfigAdminResponse(99, {
+      accountManager: {
+        refreshConfig: () => {
+          throw new Error('配置项索引不合法');
+        },
+      },
+      buildResponse: () => ({}),
+    }),
+    /配置项索引不合法/
+  );
+});
+
+test('activateConfigAdminResponse switches the active runtime config without refreshing quotas', async () => {
+  const calls = [];
+  const manager = {
+    activateConfig: (index, reason) => {
+      calls.push(['activate', index, reason]);
+    },
+    refreshQuotas: async reason => {
+      calls.push(['refresh', reason]);
+    },
+  };
+  const expectedResponse = {
+    active_config_index: 1,
+  };
+
+  const response = await activateConfigAdminResponse(1, {
+    accountManager: manager,
+    buildResponse: () => expectedResponse,
+  });
+
+  assert.deepEqual(calls, [['activate', 1, 'admin_manual_activate']]);
+  assert.equal(response, expectedResponse);
+});
+
+test('registerProcessSafetyHandlers logs business crashes without marking the process for exit', () => {
+  const processLike = new EventEmitter();
+  const errors = [];
+  processLike.exitCode = undefined;
+
+  const unregister = registerProcessSafetyHandlers({
+    process: processLike,
+    error: (...args) => errors.push(args.join(' ')),
+  });
+
+  processLike.emit('uncaughtException', new Error('route exploded'), 'uncaughtException');
+  processLike.emit('unhandledRejection', new Error('async job exploded'), Promise.resolve());
+
+  assert.equal(processLike.exitCode, undefined);
+  assert.equal(errors.length, 2);
+  assert.match(errors[0], /业务异常已捕获，服务继续运行/);
+  assert.match(errors[0], /route exploded/);
+  assert.match(errors[1], /未处理的 Promise 异常已捕获，服务继续运行/);
+  assert.match(errors[1], /async job exploded/);
+
+  unregister();
+  assert.equal(processLike.listenerCount('uncaughtException'), 0);
+  assert.equal(processLike.listenerCount('unhandledRejection'), 0);
+});
+
+test('reportBusinessRequestError returns a controlled 500 response for unexpected business errors', () => {
+  const responses = [];
+  const res = {
+    headersSent: false,
+    writableEnded: false,
+    statusCode: null,
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(payload) {
+      responses.push(payload);
+      this.writableEnded = true;
+      return this;
+    },
+  };
+
+  reportBusinessRequestError(res, new Error('handler failed'), '测试业务请求失败', {
+    error: () => {},
+  });
+
+  assert.equal(res.statusCode, 500);
+  assert.deepEqual(responses, [{
+    error: 'Internal Server Error',
+    message: 'handler failed',
+  }]);
+});

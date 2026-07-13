@@ -1,0 +1,577 @@
+#![cfg_attr(
+    all(target_os = "windows", not(debug_assertions)),
+    windows_subsystem = "windows"
+)]
+
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
+use std::time::{Duration, Instant};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
+
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::System::Threading::{
+    GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+};
+
+mod commands;
+mod desktop_data;
+mod runtime;
+mod service;
+mod shell;
+
+use commands::*;
+use service::*;
+use shell::*;
+const APP_DIR_NAME: &str = "AI Cockpit";
+const CONFIG_FILE: &str = "openai.json";
+const CONFIG_TEMPLATE_FILE: &str = "openai.json.example";
+const PID_FILE: &str = "openai.pid";
+const DEFAULT_PORT: u16 = 3009;
+const PORT_KILL_WAIT_TIMEOUT_MS: u64 = 2_500;
+const PORT_FORCE_KILL_WAIT_TIMEOUT_MS: u64 = 800;
+const PORT_KILL_POLL_INTERVAL_MS: u64 = 100;
+const TRAY_SHOW_MENU_ID: &str = "show-main-window";
+const TRAY_QUIT_MENU_ID: &str = "quit-app";
+
+static APP_EXIT_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ServiceStatus {
+    running: bool,
+    port_conflict: bool,
+    pid: Option<u32>,
+    port: Option<u16>,
+    has_config: bool,
+    config_valid: bool,
+    runtime_dir: String,
+    message: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ConfigShape {
+    port: Option<Value>,
+    auth_token: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopSettings {
+    port: u16,
+    proxy_port: Option<u16>,
+    routing_preference: String,
+    auto_switch: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopAccount {
+    index: usize,
+    item: Value,
+    runtime: Value,
+    #[serde(rename = "is_active")]
+    is_active: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopAccessToken {
+    index: usize,
+    name: String,
+    token: String,
+    masked: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopSnapshot {
+    service: ServiceStatus,
+    settings: DesktopSettings,
+    accounts: Vec<DesktopAccount>,
+    access_tokens: Vec<DesktopAccessToken>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveDesktopSettingsRequest {
+    port: Option<Value>,
+    proxy_port: Option<Value>,
+    routing_preference: Option<String>,
+    auto_switch: Option<bool>,
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    let app = tauri::Builder::default()
+        .setup(|app| {
+            setup_tray(app.handle())?;
+
+            let app_handle = app.handle().clone();
+            thread::spawn(move || {
+                if let Err(error) = emit_startup_status(&app_handle) {
+                    eprintln!("AI Cockpit Desktop startup failed: {error}");
+                    let _ = app_handle.emit("airouter-startup-error", error);
+                }
+            });
+            Ok(())
+        })
+        .on_window_event(handle_main_window_close)
+        .invoke_handler(tauri::generate_handler![
+            get_app_version,
+            open_release_page,
+            get_desktop_snapshot,
+            save_desktop_settings,
+            save_desktop_account,
+            activate_desktop_account,
+            refresh_desktop_account,
+            toggle_desktop_account_auto_switch,
+            restore_desktop_account,
+            mark_desktop_account_deleted,
+            delete_desktop_account,
+            save_access_token,
+            delete_access_token,
+            start_service,
+            stop_service,
+        ])
+        .build(tauri::generate_context!())
+        .expect("error while building AI Cockpit Desktop");
+
+    app.run(|app_handle, event| match event {
+        #[cfg(target_os = "macos")]
+        RunEvent::Reopen { .. } => show_main_window(app_handle),
+        RunEvent::ExitRequested { api, .. } => {
+            if !APP_EXIT_REQUESTED.load(Ordering::SeqCst) {
+                api.prevent_exit();
+                request_app_exit(app_handle);
+            }
+        }
+        RunEvent::Exit => {
+            if !APP_EXIT_REQUESTED.load(Ordering::SeqCst) {
+                stop_service_quietly(app_handle);
+            }
+        }
+        _ => {}
+    });
+}
+
+fn main() {
+    run();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::desktop_data::*;
+
+    fn native_source() -> String {
+        let source_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
+        [
+            "main.rs",
+            "commands.rs",
+            "desktop_data.rs",
+            "runtime.rs",
+            "service.rs",
+            "shell.rs",
+        ]
+        .into_iter()
+        .map(|file| fs::read_to_string(source_dir.join(file)).expect("read native source"))
+        .collect::<Vec<_>>()
+        .join("\n")
+    }
+
+    #[test]
+    fn builds_admin_api_url_with_explicit_port_for_runtime_port_changes() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        fs::write(
+            temp.path().join(CONFIG_FILE),
+            r#"{"port":3010,"auth_token":"auth_456"}"#,
+        )
+        .expect("write config");
+
+        assert_eq!(
+            admin_api_url_with_port(temp.path(), "/admin/api/settings", 3009)
+                .expect("admin api url"),
+            "http://localhost:3009/admin/api/settings?auth_token=auth_456"
+        );
+    }
+
+    #[test]
+    fn parses_numeric_and_string_ports() {
+        assert_eq!(parse_port(Some(Value::from(3010))), Some(3010));
+        assert_eq!(parse_port(Some(Value::from("3011"))), Some(3011));
+        assert_eq!(parse_port(Some(Value::from("bad"))), None);
+    }
+
+    #[test]
+    fn reads_configured_port_from_runtime_config() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        fs::write(temp.path().join(CONFIG_FILE), r#"{"port":"31888"}"#).expect("write config");
+        assert_eq!(
+            configured_port(temp.path()).expect("configured port"),
+            31888
+        );
+    }
+
+    #[test]
+    fn configured_port_falls_back_to_default_when_missing() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        fs::write(temp.path().join(CONFIG_FILE), r#"{}"#).expect("write config");
+        assert_eq!(
+            configured_port(temp.path()).expect("configured port"),
+            DEFAULT_PORT
+        );
+    }
+
+    #[test]
+    fn builds_account_reload_body_from_auto_switch_flag() {
+        let enabled = serde_json::json!({
+            "alias": "primary",
+            "auto_switch_disabled": true
+        });
+        let default_enabled = serde_json::json!({
+            "alias": "secondary"
+        });
+
+        assert_eq!(
+            desktop_account_reload_body(&enabled),
+            serde_json::json!({ "auto_switch_disabled": true })
+        );
+        assert_eq!(
+            desktop_account_reload_body(&default_enabled),
+            serde_json::json!({ "auto_switch_disabled": false })
+        );
+    }
+
+    #[test]
+    fn builds_desktop_settings_admin_body_for_runtime_reload() {
+        let mut config = Map::new();
+        config.insert("port".to_string(), Value::from(3020));
+        config.insert("proxy_port".to_string(), Value::from(8899));
+        config.insert(
+            "routing_preference".to_string(),
+            Value::String("apikey_first".to_string()),
+        );
+        config.insert("auto_switch".to_string(), Value::Bool(false));
+
+        assert_eq!(
+            desktop_settings_admin_body(&config),
+            serde_json::json!({
+                "port": 3020,
+                "proxy_port": 8899,
+                "routing_preference": "apikey_first",
+            })
+        );
+
+        config.remove("proxy_port");
+        assert_eq!(
+            desktop_settings_admin_body(&config).get("proxy_port"),
+            Some(&Value::Null)
+        );
+    }
+
+    #[test]
+    fn save_desktop_settings_reloads_running_service_through_admin_settings() {
+        let source = fs::read_to_string(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("src")
+                .join("commands.rs"),
+        )
+        .expect("read commands source");
+        let running_index = source
+            .find("let service_was_running = status_for_runtime")
+            .expect("capture running state");
+        let write_index = source
+            .find("write_desktop_config_map(&runtime_dir, &config)")
+            .expect("config write");
+
+        assert!(running_index < write_index);
+        assert!(source.contains("call_admin_api_on_port"));
+        assert!(source.contains("\"/admin/api/settings\""));
+        assert!(source.contains("wait_for_managed_service_port"));
+    }
+
+    #[test]
+    fn parses_lsof_pid_output() {
+        assert_eq!(
+            parse_lsof_pid_output("123\n 456 \nnot-a-pid\n789\n"),
+            vec![123, 456, 789]
+        );
+    }
+
+    #[test]
+    fn parses_windows_netstat_pid_output() {
+        let output = r#"
+  Proto  Local Address          Foreign Address        State           PID
+  TCP    0.0.0.0:3009           0.0.0.0:0              LISTENING       1234
+  TCP    [::]:3009              [::]:0                 LISTENING       1234
+  TCP    127.0.0.1:3010         0.0.0.0:0              LISTENING       9999
+"#;
+
+        assert_eq!(parse_windows_netstat_pid_output(output, 3009), vec![1234]);
+    }
+
+    #[test]
+    fn classifies_listener_ownership_without_treating_foreign_processes_as_managed() {
+        assert_eq!(
+            classify_port_ownership(&[], Some(1200)),
+            PortOwnership::Available
+        );
+        assert_eq!(
+            classify_port_ownership(&[1200], Some(1200)),
+            PortOwnership::Managed(1200)
+        );
+        assert_eq!(
+            classify_port_ownership(&[2200], Some(1200)),
+            PortOwnership::Foreign(vec![2200])
+        );
+        assert_eq!(
+            classify_port_ownership(&[1200, 2200], Some(1200)),
+            PortOwnership::Foreign(vec![1200, 2200])
+        );
+        assert_eq!(
+            classify_port_ownership(&[2200], None),
+            PortOwnership::Foreign(vec![2200])
+        );
+    }
+
+    #[test]
+    fn start_path_never_kills_every_listener_on_the_configured_port() {
+        let source = fs::read_to_string(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("src")
+                .join("service.rs"),
+        )
+        .expect("read service source");
+        let old_function = ["fn kill_port", "_listeners"].join("");
+        let old_call = ["kill_port", "_listeners(port)"].join("");
+
+        assert!(!source.contains(&old_function));
+        assert!(!source.contains(&old_call));
+        assert!(source.contains("port_ownership_for_runtime"));
+        assert!(source.contains("端口 {port} 已被其他应用占用"));
+    }
+
+    #[test]
+    fn settings_port_changes_are_checked_before_config_is_written() {
+        let source = fs::read_to_string(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("src")
+                .join("commands.rs"),
+        )
+        .expect("read commands source");
+        let check_index = source
+            .find("ensure_port_available_for_change(&runtime_dir, next_port)")
+            .expect("port availability check");
+        let write_index = source
+            .find("write_desktop_config_map(&runtime_dir, &config)")
+            .expect("config write");
+
+        assert!(check_index < write_index);
+    }
+
+    #[test]
+    fn release_windows_build_uses_gui_subsystem() {
+        let source = native_source();
+
+        assert!(source.contains("windows_subsystem = \"windows\""));
+    }
+
+    #[test]
+    fn close_handler_quiet_stop_supports_generic_tauri_runtime() {
+        let source = native_source();
+
+        let generic_signature = "fn stop_service_quietly<R: tauri::Runtime>(app: &AppHandle<R>)";
+        assert_eq!(source.matches(generic_signature).count(), 2);
+    }
+
+    #[test]
+    fn windows_background_commands_do_not_open_console_windows() {
+        let source = native_source();
+
+        assert!(source.contains("use std::os::windows::process::CommandExt;"));
+        assert!(source.contains("CREATE_NO_WINDOW"));
+        assert!(
+            source.matches("hide_command_window(").count() >= 6,
+            "all recurring background commands should opt out of Windows console windows"
+        );
+    }
+
+    #[test]
+    fn runtime_helpers_are_available_to_split_modules() {
+        let shell_source = fs::read_to_string(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("src")
+                .join("shell.rs"),
+        )
+        .expect("read shell source");
+
+        assert!(shell_source.contains("use crate::runtime::hide_command_window;"));
+    }
+
+    #[test]
+    fn windows_process_status_does_not_spawn_powershell() {
+        let source = native_source();
+
+        assert!(
+            !source.contains("Command::new(\"powershell\")"),
+            "frequent status polling must not spawn powershell on Windows"
+        );
+        assert!(source.contains("OpenProcess"));
+        assert!(source.contains("GetExitCodeProcess"));
+        assert!(source.contains("STILL_ACTIVE as u32"));
+    }
+
+    #[test]
+    fn macos_bundle_enables_node_jit_entitlement() {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let tauri_config =
+            fs::read_to_string(manifest_dir.join("tauri.conf.json")).expect("read tauri config");
+        let entitlements =
+            fs::read_to_string(manifest_dir.join("entitlements.plist")).expect("read entitlements");
+
+        assert!(tauri_config.contains(r#""entitlements": "entitlements.plist""#));
+        assert!(entitlements.contains("<key>com.apple.security.cs.allow-jit</key>"));
+        assert!(entitlements.contains("<true/>"));
+    }
+
+    #[test]
+    fn main_window_title_is_visible_to_windows_shell() {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let tauri_config =
+            fs::read_to_string(manifest_dir.join("tauri.conf.json")).expect("read tauri config");
+
+        assert!(tauri_config.contains(r#""productName": "AI Cockpit""#));
+        assert!(
+            tauri_config.contains(r#""title": "AI Cockpit""#),
+            "Windows taskbar and Task Manager need a non-empty main window title"
+        );
+    }
+
+    #[test]
+    fn packaged_node_sidecar_prefers_app_bundle_over_manifest_binary() {
+        let source = native_source();
+
+        let app_bundle_node = "exe_dir.join(\"node\")";
+        let manifest_node = "manifest_dir.join(\"binaries\").join(\"node\")";
+        let app_bundle_index = source
+            .find(app_bundle_node)
+            .expect("current executable node candidate");
+        let manifest_index = source.find(manifest_node).expect("manifest node candidate");
+
+        assert!(
+            app_bundle_index < manifest_index,
+            "packaged app must choose Contents/MacOS/node before workspace binaries"
+        );
+    }
+
+    #[test]
+    fn startup_events_include_console_ready_event_name() {
+        let source = native_source();
+
+        let old_startup_function = ["maybe_start_or_prompt", "_for_config"].join("");
+        let old_navigation_call = ["start_and_show_config_page", "(app).map(|_| ())"].join("");
+
+        assert!(source.contains("airouter-startup-complete"));
+        assert!(source.contains("emit_startup_status"));
+        assert!(!source.contains(&old_startup_function));
+        assert!(!source.contains(&old_navigation_call));
+    }
+
+    #[test]
+    fn close_button_hides_main_window_without_stopping_service() {
+        let source = native_source();
+
+        assert!(source.contains("handle_main_window_close"));
+        assert!(source.contains("api.prevent_close();"));
+        assert!(source.contains("window.hide()"));
+        assert!(
+            !source.contains(
+                "CloseRequested { api, .. } = event {\n        #[cfg(target_os = \"macos\")]"
+            ),
+            "close-to-hide should apply to Windows as well as macOS"
+        );
+        assert!(
+            !source.contains("CloseRequested { .. }) {\n                let app = window.app_handle().clone();\n                stop_service_quietly(&app);"),
+            "close event must not synchronously stop the service"
+        );
+    }
+
+    #[test]
+    fn tray_menu_provides_explicit_async_exit_path() {
+        let source = native_source();
+
+        assert!(source.contains("TrayIconBuilder::with_id(\"main-tray\")"));
+        assert!(source.contains("show_menu_on_left_click(false)"));
+        assert!(source.contains("TRAY_SHOW_MENU_ID"));
+        assert!(source.contains("TRAY_QUIT_MENU_ID"));
+        assert!(source.contains("fn request_app_exit"));
+        assert!(
+            source.contains("thread::spawn(move ||") && source.contains("app.exit(0);"),
+            "explicit tray exit should stop the service off the UI thread before exiting"
+        );
+    }
+
+    #[test]
+    fn final_exit_event_stops_service_when_exit_request_was_not_intercepted() {
+        let source = native_source();
+
+        assert!(source.contains("RunEvent::Exit =>"));
+        assert!(source.contains(
+            "if !APP_EXIT_REQUESTED.load(Ordering::SeqCst) {\n                stop_service_quietly(app_handle);"
+        ));
+    }
+
+    #[test]
+    fn accepts_only_ai_cockpit_github_release_urls() {
+        assert!(is_project_release_url(
+            "https://github.com/iiiiuuuuuu/ai-cockpit/releases/tag/v0.3.0"
+        ));
+        assert!(is_project_release_url(
+            "https://github.com/iiiiuuuuuu/ai-cockpit/releases/latest"
+        ));
+        assert!(!is_project_release_url("https://example.com/download"));
+        assert!(!is_project_release_url(
+            "https://github.com/other/repository/releases/tag/v1.0.0"
+        ));
+    }
+
+    #[test]
+    fn forced_exit_cleanup_removes_stale_runtime_process_metadata() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        fs::write(temp.path().join(PID_FILE), "99999999").expect("write stale pid");
+        fs::write(temp.path().join("openai.control.json"), "{}").expect("write control file");
+        fs::write(temp.path().join("openai.control.request.json"), "{}")
+            .expect("write request file");
+
+        force_stop_runtime_service(temp.path()).expect("force stop stale runtime");
+
+        assert!(!temp.path().join(PID_FILE).exists());
+        assert!(!temp.path().join("openai.control.json").exists());
+        assert!(!temp.path().join("openai.control.request.json").exists());
+    }
+
+    #[test]
+    fn macos_reopen_event_is_not_compiled_on_windows() {
+        let source = native_source();
+
+        assert!(
+            source.contains("#[cfg(target_os = \"macos\")]\n        RunEvent::Reopen"),
+            "RunEvent::Reopen is macOS-only and must stay behind a target_os gate"
+        );
+    }
+}
