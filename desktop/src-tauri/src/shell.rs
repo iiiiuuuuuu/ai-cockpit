@@ -3,6 +3,10 @@ use crate::runtime::hide_command_window;
 use crate::*;
 
 const PROJECT_RELEASE_URL_PREFIX: &str = "https://github.com/iiiiuuuuuu/ai-cockpit/releases/";
+const ACCOUNT_HELP_URLS: [&str; 2] = [
+    "https://chatgpt.com/",
+    "https://chatgpt.com/api/auth/session",
+];
 
 pub(crate) fn is_project_release_url(url: &str) -> bool {
     url.starts_with(PROJECT_RELEASE_URL_PREFIX)
@@ -13,6 +17,22 @@ pub(crate) fn open_project_release_url(url: &str) -> Result<(), String> {
         return Err("版本下载地址无效".to_string());
     }
 
+    open_url_with_system(url, "版本下载页面")
+}
+
+pub(crate) fn is_account_help_url(url: &str) -> bool {
+    ACCOUNT_HELP_URLS.contains(&url)
+}
+
+pub(crate) fn open_account_help_url(url: &str) -> Result<(), String> {
+    if !is_account_help_url(url) {
+        return Err("账号帮助地址无效".to_string());
+    }
+
+    open_url_with_system(url, "账号帮助页面")
+}
+
+fn open_url_with_system(url: &str, page_name: &str) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     let mut command = Command::new("open");
     #[cfg(target_os = "macos")]
@@ -37,12 +57,12 @@ pub(crate) fn open_project_release_url(url: &str) -> Result<(), String> {
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .status()
-        .map_err(|error| format!("无法打开版本下载页面: {error}"))?;
+        .map_err(|error| format!("无法打开{page_name}: {error}"))?;
 
     if status.success() {
         Ok(())
     } else {
-        Err("打开版本下载页面失败".to_string())
+        Err(format!("打开{page_name}失败"))
     }
 }
 

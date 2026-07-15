@@ -76,9 +76,29 @@
                 <option value="weeklyQuota">按周配额</option>
               </select>
               <button class="icon-button" type="button" id="sortDirectionButton" title="切换升降序" aria-label="切换升降序">↓</button>
+              <button class="icon-button reorder-open-button" type="button" id="openAccountReorderButton" title="调整默认顺序" aria-label="调整默认顺序">
+                <svg data-icon="reorder-list" viewBox="0 0 20 20" aria-hidden="true">
+                  <path d="M3.5 5.25h8.25M3.5 10h8.25M3.5 14.75h8.25M15.25 4v12M13.25 6l2-2 2 2M13.25 14l2 2 2-2" />
+                </svg>
+              </button>
             </div>
             <div class="toolbar-actions">
-              <button class="small-button add-account-button" type="button" id="openAddAccountModalButton">添加账号</button>
+              <div class="reorder-actions" id="accountReorderActions" hidden>
+                <button class="small-button reorder-cancel-button" type="button" id="cancelAccountReorderButton">取消</button>
+                <button class="small-button primary-button reorder-save-button" type="button" id="saveAccountReorderButton">完成</button>
+              </div>
+              <div class="add-account-actions" id="addAccountActions">
+                <div class="add-account-split">
+                  <button class="add-account-button" type="button" id="openAddAccountModalButton">添加账号</button>
+                  <button class="add-account-menu-toggle" type="button" id="toggleBatchImportMenuButton" aria-label="更多添加方式" aria-expanded="false">
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
+                  </button>
+                </div>
+                <div class="add-account-menu" id="batchImportMenu" hidden>
+                  <button type="button" id="openBatchImportButton"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 13V3m0 0L6.5 6.5M10 3l3.5 3.5M4 11.5v3.2c0 .7.6 1.3 1.3 1.3h9.4c.7 0 1.3-.6 1.3-1.3v-3.2" /></svg><span>批量导入账号</span></button>
+                  <button type="button" id="openBatchExportButton"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10m0 0 3.5-3.5M10 13 6.5 9.5M4 11.5v3.2c0 .7.6 1.3 1.3 1.3h9.4c.7 0 1.3-.6 1.3-1.3v-3.2" /></svg><span>批量导出账号</span></button>
+                </div>
+              </div>
             </div>
           </header>
 
@@ -87,9 +107,8 @@
           <section class="accounts-grid" id="accountsGrid" aria-label="账号列表"></section>
 
           <section class="empty-state" id="emptyAccountsState" hidden>
-            <div class="empty-icon" aria-hidden="true">+</div>
             <div class="empty-title">还没有账号</div>
-            <button class="primary-button" type="button" id="emptyAddAccountButton">添加账号</button>
+            <button class="empty-add-button" type="button" id="emptyAddAccountButton" title="添加账号" aria-label="添加账号">+</button>
           </section>
         </section>
 
@@ -200,7 +219,7 @@
         <div class="modal-header">
           <div>
             <div class="modal-title" id="accountModalTitle">添加账号</div>
-            <div class="modal-subtitle" id="accountModalSubtitle">Token 模式用于 Codex 登录态账号；API Key 模式默认按 ChatGPT/OpenAI 兼容上游使用。</div>
+            <div class="modal-subtitle" id="accountModalSubtitle">导入 ChatGPT/Codex 登录信息，并确认账号资料。</div>
           </div>
           <button class="icon-button" type="button" data-close-modal="accountModal" aria-label="关闭">×</button>
         </div>
@@ -209,160 +228,119 @@
           <button class="mode-tab mode-card active" type="button" data-account-mode="token">
             <span class="radio-dot" aria-hidden="true"></span>
             <span>
-              <strong>Token</strong>
-              <small>粘贴 AuthSession JSON，适合 Codex 登录态账号。</small>
+              <strong>Token 模式</strong>
+              <small>使用 ChatGPT / Codex 登录凭证</small>
             </span>
           </button>
           <button class="mode-tab mode-card" type="button" data-account-mode="apikey">
             <span class="radio-dot" aria-hidden="true"></span>
             <span>
-              <strong>API Key</strong>
-              <small>填写 Base URL、API Key 和备注。</small>
+              <strong>API Key 模式</strong>
+              <small>连接兼容 OpenAI API 格式的服务</small>
             </span>
           </button>
         </div>
 
         <div class="modal-body">
           <section class="mode-panel active" id="tokenAccountPanel">
-            <div class="form-columns">
-              <section class="form-panel">
-                <div class="panel-head"><strong>账号字段</strong><span id="tokenParseStatus">尚未解析</span></div>
-                <div class="form-grid two-columns">
-                  <label class="field">
-                    <span class="field-label-line"><span class="field-name">邮箱账号</span><span class="optional-pill">可选</span></span>
-                    <input id="tokenEmailInput" type="email" autocomplete="off" placeholder="user@example.com" />
-                    <small>解析后自动填充。</small>
-                  </label>
-                  <label class="field">
-                    <span class="field-label-line"><span class="field-name">别名</span><span class="optional-pill">可选</span></span>
-                    <input id="tokenAliasInput" type="text" autocomplete="off" placeholder="例如：主账号" />
-                    <small>用于账号卡片展示。</small>
-                  </label>
-                  <label class="field">
-                    <span class="field-label-line"><span class="field-name">金额（元）</span><span class="optional-pill">可选</span></span>
-                    <input id="tokenPriceInput" type="number" min="0" step="0.01" inputmode="decimal" placeholder="例如：20" />
-                    <small>仅展示成本。</small>
-                  </label>
-                  <label class="field">
-                    <span class="field-label-line"><span class="field-name">开始使用时间</span><span class="optional-pill">可选</span></span>
-                    <input class="datetime-input" id="tokenStartedAtInput" type="datetime-local" step="60" aria-label="开始使用时间" />
-                    <small>用于计算使用天数。</small>
-                  </label>
-                  <label class="field">
-                    <span class="field-label-line"><span class="field-name">停止使用时间</span><span class="optional-pill">可选</span></span>
-                    <input class="datetime-input" id="tokenStoppedAtInput" type="datetime-local" step="60" aria-label="停止使用时间" />
-                    <small>停止使用后会固定使用天数。</small>
-                  </label>
-                  <label class="field">
-                    <span class="field-label-line"><span class="field-name">account_id</span><span class="optional-pill">可选</span></span>
-                    <input id="tokenAccountIdInput" type="text" autocomplete="off" placeholder="account-id" />
-                    <small>有账号或 workspace ID 时会自动关联展示。</small>
-                  </label>
-                  <label class="field">
-                    <span class="field-label-line"><span class="field-name">client_id</span><span class="optional-pill">可选</span></span>
-                    <input id="tokenClientIdInput" type="text" autocomplete="off" placeholder="client_id" />
-                    <small>用于刷新 token。</small>
-                  </label>
-                  <label class="field">
-                    <span class="field-label-line"><span class="field-name">access_token</span><span class="required-pill">必填</span></span>
-                    <span class="secret-input">
-                      <input id="tokenAccessTokenInput" type="password" autocomplete="off" required placeholder="••••••••••••••••" />
-                      <button class="secret-toggle" type="button" data-secret-toggle="tokenAccessTokenInput" title="显示明文" aria-label="显示 access_token 明文">
-                        <svg class="secret-eye-icon" viewBox="0 0 20 20" aria-hidden="true">
-                          <path d="M2.5 10s2.8-4.5 7.5-4.5 7.5 4.5 7.5 4.5-2.8 4.5-7.5 4.5S2.5 10 2.5 10Z"></path>
-                          <circle cx="10" cy="10" r="2.2"></circle>
-                        </svg>
-                      </button>
-                    </span>
-                    <small>请求鉴权 token。</small>
-                  </label>
-                  <label class="field">
-                    <span class="field-label-line"><span class="field-name">refresh_token</span><span class="optional-pill">可选</span></span>
-                    <span class="secret-input">
-                      <input id="tokenRefreshTokenInput" type="password" autocomplete="off" placeholder="••••••••••••••••" />
-                      <button class="secret-toggle" type="button" data-secret-toggle="tokenRefreshTokenInput" title="显示明文" aria-label="显示 refresh_token 明文">
-                        <svg class="secret-eye-icon" viewBox="0 0 20 20" aria-hidden="true">
-                          <path d="M2.5 10s2.8-4.5 7.5-4.5 7.5 4.5 7.5 4.5-2.8 4.5-7.5 4.5S2.5 10 2.5 10Z"></path>
-                          <circle cx="10" cy="10" r="2.2"></circle>
-                        </svg>
-                      </button>
-                    </span>
-                    <small>用于自动续期。</small>
-                  </label>
-                </div>
-              </section>
-              <aside class="form-panel soft json-helper">
-                <div class="panel-head"><strong>Token 信息辅助填充</strong><span>推荐</span></div>
-                <div class="helper-block"><strong>方式一：ChatGPT 网页</strong><p>用无痕窗口登录 ChatGPT，访问 AuthSession，复制返回的 JSON。</p></div>
-                <div class="helper-block"><strong>方式二：Codex auth.json</strong><p>复制 .codex/auth.json 里的 token 信息；完成后清空 auth.json 并退出 Codex。</p></div>
-                <div class="json-helper-head">
-                  <label for="tokenJsonInput">Token JSON</label>
+            <section class="account-form-section account-import-section" data-add-only>
+              <div class="account-section-head">
+                <strong class="account-section-title">导入登录信息</strong>
+                <button class="text-link-button" type="button" id="openTokenFormatButton">查看格式示例</button>
+              </div>
+              <div class="account-import-box">
+                <div class="account-import-sources">
+                  <div class="account-import-copy">
+                    <div class="account-import-source-line"><strong>方式一：</strong>使用无痕窗口打开 <button class="inline-link-button" type="button" data-account-help-url="https://chatgpt.com/">ChatGPT 网页</button> 并登录，再打开 <button class="inline-link-button" type="button" data-account-help-url="https://chatgpt.com/api/auth/session">AuthSession</button> 复制 JSON。</div>
+                    <div class="account-import-source-line"><strong>方式二：</strong>登录 ChatGPT/Codex 应用后，复制 <code id="authJsonDisplayPath">~/.codex/auth.json</code> 中的账号登录信息。</div>
+                  </div>
                   <button class="parse-json-button" type="button" id="parseTokenJsonButton">解析 JSON</button>
                 </div>
-                <textarea id="tokenJsonInput" spellcheck="false" rows="7" placeholder='{
-  "user": {
-    "email": "user@example.com"
-  },
+                <textarea id="tokenJsonInput" spellcheck="false" rows="3" data-modal-autofocus placeholder="粘贴 AuthSession 或 auth.json 内容"></textarea>
+                <div class="inline-message" id="tokenJsonFeedback"></div>
+              </div>
+            </section>
+
+            <section class="account-form-section">
+              <div class="account-section-head"><strong class="account-section-title">登录凭证</strong><span>用于请求和自动续期</span></div>
+              <div class="form-grid two-columns">
+                <label class="field">
+                  <span class="field-label-line"><span class="field-name">访问令牌</span><span class="technical-name">access_token</span><span class="required-pill">必填</span></span>
+                  <span class="secret-input">
+                    <input id="tokenAccessTokenInput" type="password" autocomplete="off" required placeholder="解析后自动填充，或手动输入" />
+                    <button class="secret-toggle" type="button" data-secret-toggle="tokenAccessTokenInput" title="显示明文" aria-label="显示 access_token 明文"><svg class="secret-eye-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 10s2.8-4.5 7.5-4.5 7.5 4.5 7.5 4.5-2.8 4.5-7.5 4.5S2.5 10 2.5 10Z"></path><circle cx="10" cy="10" r="2.2"></circle></svg></button>
+                  </span>
+                  <small>用于向 ChatGPT / Codex 发起请求。</small>
+                </label>
+                <label class="field">
+                  <span class="field-label-line"><span class="field-name">刷新令牌</span><span class="technical-name">refresh_token</span><span class="recommended-pill">建议</span></span>
+                  <span class="secret-input">
+                    <input id="tokenRefreshTokenInput" type="password" autocomplete="off" placeholder="解析后自动填充" />
+                    <button class="secret-toggle" type="button" data-secret-toggle="tokenRefreshTokenInput" title="显示明文" aria-label="显示 refresh_token 明文"><svg class="secret-eye-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 10s2.8-4.5 7.5-4.5 7.5 4.5 7.5 4.5-2.8 4.5-7.5 4.5S2.5 10 2.5 10Z"></path><circle cx="10" cy="10" r="2.2"></circle></svg></button>
+                  </span>
+                  <small>访问令牌过期后自动续期，建议一并填写。</small>
+                </label>
+              </div>
+            </section>
+
+            <section class="account-form-section">
+              <div class="account-section-head"><strong class="account-section-title">账号资料</strong><span>仅用于首页识别和使用记录</span></div>
+              <div class="form-grid two-columns">
+                <label class="field"><span class="field-label-line"><span class="field-name">账号名称</span><span class="optional-pill">可选</span></span><input id="tokenAliasInput" type="text" autocomplete="off" placeholder="例如：工作账号" /><small>首页优先显示此名称，未填写时显示邮箱。</small></label>
+                <label class="field"><span class="field-label-line"><span class="field-name">邮箱</span><span class="optional-pill">可选</span></span><input id="tokenEmailInput" type="email" autocomplete="off" placeholder="name@example.com" /><small>用于识别账号，不参与登录。</small></label>
+                <label class="field"><span class="field-label-line"><span class="field-name">购买金额（元）</span><span class="optional-pill">可选</span></span><input id="tokenPriceInput" type="number" min="0" step="0.01" inputmode="decimal" placeholder="例如：140" /><small>仅作成本记录，不参与实际计费。</small></label>
+                <label class="field"><span class="field-label-line"><span class="field-name">开始使用时间</span><span class="optional-pill">可选</span></span><input class="datetime-input" id="tokenStartedAtInput" type="datetime-local" step="60" aria-label="开始使用时间" /><small>默认为当前时间，用于计算已使用天数。</small></label>
+                <label class="field span-2" data-edit-only hidden><span class="field-label-line"><span class="field-name">停止使用时间</span><span class="optional-pill">可选</span></span><input class="datetime-input" id="tokenStoppedAtInput" type="datetime-local" step="60" aria-label="停止使用时间" /><small>停止使用后会固定使用天数。</small></label>
+              </div>
+            </section>
+
+            <section class="account-form-section">
+              <div class="account-section-head"><strong class="account-section-title">账号标识</strong><span>通常由 JSON 自动填写</span></div>
+              <div class="form-grid two-columns">
+                <label class="field"><span class="field-label-line"><span class="field-name">账号 ID</span><span class="technical-name">account_id</span><span class="optional-pill">可选</span></span><input id="tokenAccountIdInput" type="text" autocomplete="off" placeholder="解析后自动填充" /><small>组织或工作区账号标识。</small></label>
+                <label class="field"><span class="field-label-line"><span class="field-name">客户端 ID</span><span class="technical-name">client_id</span><span class="optional-pill">可选</span></span><input id="tokenClientIdInput" type="text" autocomplete="off" placeholder="解析后自动填充" /><small>部分登录凭证续期时使用。</small></label>
+              </div>
+            </section>
+
+            <div class="token-format-overlay" id="tokenFormatDialog" role="dialog" aria-modal="true" aria-labelledby="tokenFormatTitle" hidden>
+              <section class="token-format-card">
+                <div class="token-format-head"><strong id="tokenFormatTitle">Token JSON 格式示例</strong><button class="icon-button" type="button" id="closeTokenFormatButton" aria-label="关闭格式示例">×</button></div>
+                <div class="token-format-tabs"><button class="token-format-tab active" type="button" data-token-format="session">ChatGPT AuthSession</button><button class="token-format-tab" type="button" data-token-format="app">ChatGPT 应用 auth.json</button></div>
+                <pre class="token-format-example active" data-token-format-example="session">{
   "accessToken": "access-token",
   "refreshToken": "refresh-token",
-  "account": {
-    "id": "account-id"
+  "user": { "email": "name@example.com" },
+  "account": { "id": "account-id" }
+}</pre>
+                <pre class="token-format-example" data-token-format-example="app">{
+  "tokens": {
+    "id_token": "id-token",
+    "access_token": "access-token",
+    "refresh_token": "refresh-token",
+    "account_id": "account-id"
   }
-}'></textarea>
-                <div class="helper-block muted-helper"><p>支持提取 accessToken、refresh_token、account.id、user.email 和 client_id。</p></div>
-                <div class="inline-message" id="tokenJsonFeedback"></div>
-              </aside>
+}</pre>
+              </section>
             </div>
           </section>
 
           <section class="mode-panel" id="apiKeyAccountPanel">
-            <section class="form-panel">
-              <div class="panel-head"><strong>API Key 上游</strong><span>不做额度检查</span></div>
-              <div class="form-grid">
-                <label class="field">
-                  <span class="field-label-line"><span class="field-name">Base URL</span><span class="required-pill">必填</span></span>
-                  <input id="apiKeyBaseUrlInput" type="url" autocomplete="off" required placeholder="https://api.openai.com/v1" />
-                  <small>ChatGPT/OpenAI 兼容上游地址。</small>
-                </label>
-                <label class="field">
-                  <span class="field-label-line"><span class="field-name">API Key</span><span class="required-pill">必填</span></span>
-                  <span class="secret-input">
-                    <input id="apiKeySecretInput" type="password" autocomplete="off" required />
-                    <button class="secret-toggle" type="button" data-secret-toggle="apiKeySecretInput" title="显示明文" aria-label="显示 API Key 明文">
-                      <svg class="secret-eye-icon" viewBox="0 0 20 20" aria-hidden="true">
-                        <path d="M2.5 10s2.8-4.5 7.5-4.5 7.5 4.5 7.5 4.5-2.8 4.5-7.5 4.5S2.5 10 2.5 10Z"></path>
-                        <circle cx="10" cy="10" r="2.2"></circle>
-                      </svg>
-                    </button>
-                  </span>
-                  <small>上游请求鉴权密钥。</small>
-                </label>
-                <label class="field">
-                  <span class="field-label-line"><span class="field-name">备注</span><span class="optional-pill">可选</span></span>
-                  <input id="apiKeyDescriptionInput" type="text" autocomplete="off" />
-                  <small>用于账号卡片展示。</small>
-                </label>
-                <div class="form-grid two-columns">
-                  <label class="field">
-                    <span class="field-label-line"><span class="field-name">金额（元）</span><span class="optional-pill">可选</span></span>
-                    <input id="apiKeyPriceInput" type="number" min="0" step="0.01" inputmode="decimal" placeholder="例如：20" />
-                    <small>仅展示成本。</small>
-                  </label>
-                  <label class="field">
-                    <span class="field-label-line"><span class="field-name">开始使用时间</span><span class="optional-pill">可选</span></span>
-                    <input class="datetime-input" id="apiKeyStartedAtInput" type="datetime-local" step="60" aria-label="开始使用时间" />
-                    <small>用于计算使用天数。</small>
-                  </label>
-                  <label class="field">
-                    <span class="field-label-line"><span class="field-name">停止使用时间</span><span class="optional-pill">可选</span></span>
-                    <input class="datetime-input" id="apiKeyStoppedAtInput" type="datetime-local" step="60" aria-label="停止使用时间" />
-                    <small>停止使用后会固定使用天数。</small>
-                  </label>
-                </div>
-                <div class="helper-block">
-                  <p>保存后会出现在首页账号卡片中；刷新会按 ChatGPT/OpenAI 兼容接口测试上游是否可用，不展示 5 小时或周配额。</p>
-                </div>
+            <section class="account-form-section">
+              <div class="account-section-head"><strong class="account-section-title">连接信息</strong><span>保存前检查格式，刷新时检测可用性</span></div>
+              <div class="form-grid two-columns">
+                <label class="field"><span class="field-label-line"><span class="field-name">接口地址</span><span class="technical-name">Base URL</span><span class="required-pill">必填</span></span><input id="apiKeyBaseUrlInput" type="url" autocomplete="off" required placeholder="https://api.openai.com/v1" /><small>填写服务商提供的接口地址，通常以 /v1 结尾。</small></label>
+                <label class="field"><span class="field-label-line"><span class="field-name">API 密钥</span><span class="technical-name">API Key</span><span class="required-pill">必填</span></span><span class="secret-input"><input id="apiKeySecretInput" type="password" autocomplete="off" required placeholder="sk-..." /><button class="secret-toggle" type="button" data-secret-toggle="apiKeySecretInput" title="显示明文" aria-label="显示 API Key 明文"><svg class="secret-eye-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 10s2.8-4.5 7.5-4.5 7.5 4.5 7.5 4.5-2.8 4.5-7.5 4.5S2.5 10 2.5 10Z"></path><circle cx="10" cy="10" r="2.2"></circle></svg></button></span><small>填写服务商提供的 API Key，仅保存在本机。</small></label>
               </div>
+            </section>
+            <section class="account-form-section">
+              <div class="account-section-head"><strong class="account-section-title">账号资料</strong><span>仅用于首页识别和使用记录</span></div>
+              <div class="form-grid two-columns">
+                <label class="field span-2"><span class="field-label-line"><span class="field-name">账号名称</span><span class="optional-pill">可选</span></span><input id="apiKeyDescriptionInput" type="text" autocomplete="off" placeholder="例如：OpenAI 主 Key" /><small>首页显示的名称，方便区分多个 API Key。</small></label>
+                <label class="field"><span class="field-label-line"><span class="field-name">购买金额（元）</span><span class="optional-pill">可选</span></span><input id="apiKeyPriceInput" type="number" min="0" step="0.01" inputmode="decimal" placeholder="例如：140" /><small>仅作成本记录，不参与实际计费。</small></label>
+                <label class="field"><span class="field-label-line"><span class="field-name">开始使用时间</span><span class="optional-pill">可选</span></span><input class="datetime-input" id="apiKeyStartedAtInput" type="datetime-local" step="60" aria-label="开始使用时间" /><small>默认为当前时间，用于计算已使用天数。</small></label>
+                <label class="field span-2" data-edit-only hidden><span class="field-label-line"><span class="field-name">停止使用时间</span><span class="optional-pill">可选</span></span><input class="datetime-input" id="apiKeyStoppedAtInput" type="datetime-local" step="60" aria-label="停止使用时间" /><small>停止使用后会固定使用天数。</small></label>
+              </div>
+              <div class="account-mode-note">API Key 模式不展示 5 小时和周配额。保存后可在账号卡片中检测上游接口是否可用。</div>
             </section>
           </section>
         </div>
@@ -372,6 +350,154 @@
           <button class="dialog-button dialog-button-primary" type="submit" id="saveAccountButton">添加 Token 账号</button>
         </div>
       </form>
+    </div>
+
+    <div class="modal-backdrop" id="batchImportModal" hidden>
+      <section class="modal batch-import-modal" data-stage="files" role="dialog" aria-modal="true" aria-labelledby="batchImportTitle">
+        <div class="modal-header">
+          <div>
+            <div class="modal-title" id="batchImportTitle">批量导入账号</div>
+            <div class="modal-subtitle">一次导入多个 Token 或 API Key 账号。</div>
+          </div>
+          <button class="icon-button" type="button" data-close-modal="batchImportModal" aria-label="关闭">×</button>
+        </div>
+
+        <div class="batch-import-steps" aria-label="导入进度">
+          <div class="batch-import-step active" data-batch-import-step="files"><span>1</span><strong>选择文件</strong></div>
+          <div class="batch-import-step" data-batch-import-step="preview"><span>2</span><strong>检查账号</strong></div>
+          <div class="batch-import-step" data-batch-import-step="result"><span>3</span><strong>完成导入</strong></div>
+        </div>
+
+        <div class="batch-import-body">
+          <section class="batch-import-panel active" data-batch-import-panel="files">
+            <button class="batch-import-dropzone" type="button" id="batchImportDropzone">
+              <span class="batch-import-upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 15V5m0 0L8.5 8.5M12 5l3.5 3.5M5 14v3.5A1.5 1.5 0 0 0 6.5 19h11a1.5 1.5 0 0 0 1.5-1.5V14" /></svg></span>
+              <strong>拖入 JSON 文件，或<span>点击选择</span></strong>
+              <small>支持同时选择多个文件</small>
+            </button>
+            <input id="batchImportFileInput" type="file" accept="application/json,.json" multiple hidden />
+            <div class="batch-import-formats">
+              <div><strong>多个独立文件</strong><small>每个 JSON 对应一个账号</small></div>
+              <div><strong>账号数组</strong><small>[{...}, {...}]</small></div>
+              <div><strong>账号集合</strong><small>{"accounts": [...]}</small></div>
+            </div>
+          </section>
+
+          <section class="batch-import-panel" data-batch-import-panel="preview" hidden>
+            <div class="batch-import-preview-head">
+              <div><strong id="batchImportParsedTitle">已解析 0 个账号</strong><small id="batchImportSourceSummary"></small></div>
+              <label>已存在账号
+                <select id="batchImportExistingPolicy">
+                  <option value="skip">跳过已有账号（推荐）</option>
+                  <option value="update">更新已有账号凭证</option>
+                </select>
+              </label>
+            </div>
+            <div class="batch-import-summary" id="batchImportSummary"></div>
+            <div class="batch-import-table-wrap">
+              <table class="batch-import-table">
+                <thead><tr><th>账号</th><th>类型</th><th>来源</th><th>检查结果</th><th>处理方式</th></tr></thead>
+                <tbody id="batchImportTableBody"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="batch-import-panel" data-batch-import-panel="result" hidden>
+            <div class="batch-import-result">
+              <span class="batch-import-result-icon" aria-hidden="true">✓</span>
+              <strong>账号导入完成</strong>
+              <small>新账号将在后台检查额度，不影响继续使用 App。</small>
+              <div class="batch-import-result-counts">
+                <div><strong id="batchImportResultImported">0</strong><small>成功导入</small></div>
+                <div><strong id="batchImportResultUpdated">0</strong><small>更新凭证</small></div>
+                <div><strong id="batchImportResultSkipped">0</strong><small>已跳过</small></div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div class="modal-footer batch-import-footer">
+          <small id="batchImportFooterNote">文件只在本机解析，确认前不会修改现有账号。</small>
+          <div class="batch-import-footer-actions" data-batch-import-actions="files">
+            <button class="batch-import-button secondary" type="button" data-close-modal="batchImportModal">取消</button>
+          </div>
+          <div class="batch-import-footer-actions" data-batch-import-actions="preview" hidden>
+            <button class="batch-import-button secondary" type="button" id="batchImportReselectButton">重新选择</button>
+            <button class="batch-import-button primary" type="button" id="confirmBatchImportButton">导入 0 个</button>
+          </div>
+          <div class="batch-import-footer-actions" data-batch-import-actions="result" hidden>
+            <button class="batch-import-button primary" type="button" data-close-modal="batchImportModal">完成</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="modal-backdrop" id="batchExportModal" hidden>
+      <section class="modal batch-export-modal" role="dialog" aria-modal="true" aria-labelledby="batchExportTitle">
+        <div class="modal-header">
+          <div>
+            <div class="modal-title" id="batchExportTitle">批量导出账号</div>
+            <div class="modal-subtitle">选择需要迁移到其他电脑的账号。</div>
+          </div>
+          <button class="icon-button" type="button" data-close-modal="batchExportModal" aria-label="关闭">×</button>
+        </div>
+
+        <div class="batch-export-body">
+          <div class="batch-export-tools">
+            <label class="batch-export-search">
+              <span aria-hidden="true">⌕</span>
+              <input id="batchExportSearchInput" type="search" placeholder="搜索别名、邮箱、Account ID 或 Base URL" autocomplete="off" />
+            </label>
+            <div class="batch-export-filters" role="group" aria-label="导出账号筛选">
+              <button class="active" type="button" data-batch-export-filter="all">全部 <span data-batch-export-count="all">0</span></button>
+              <button type="button" data-batch-export-filter="token">Token <span data-batch-export-count="token">0</span></button>
+              <button type="button" data-batch-export-filter="apikey">API Key <span data-batch-export-count="apikey">0</span></button>
+              <button type="button" data-batch-export-filter="deleted">已删除 <span data-batch-export-count="deleted">0</span></button>
+            </div>
+          </div>
+
+          <div class="batch-export-quick-actions" aria-label="快速选择">
+            <span id="batchExportSelectionSummary">未选择账号</span>
+            <div>
+              <button type="button" data-batch-export-scope="active">选择全部未删除</button>
+              <button type="button" data-batch-export-scope="all">选择全部账号</button>
+              <button type="button" data-batch-export-scope="none">清空选择</button>
+            </div>
+          </div>
+
+          <div class="batch-export-table-frame">
+            <div class="batch-export-table-scroll">
+              <table class="batch-export-table">
+                <thead>
+                  <tr>
+                    <th class="batch-export-check-cell"><input id="batchExportPageCheckbox" type="checkbox" aria-label="选择当前页账号" /></th>
+                    <th>账号</th>
+                    <th>类型</th>
+                    <th>状态</th>
+                  </tr>
+                </thead>
+                <tbody id="batchExportTableBody"></tbody>
+              </table>
+            </div>
+            <div class="batch-export-pagination" id="batchExportPagination">
+              <span id="batchExportRange">0-0 / 0</span>
+              <div>
+                <button type="button" id="batchExportPreviousButton" title="上一页" aria-label="上一页">‹</button>
+                <span id="batchExportPageLabel">1 / 1</span>
+                <button type="button" id="batchExportNextButton" title="下一页" aria-label="下一页">›</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer batch-export-footer">
+          <small>导出文件包含完整 Token 和 API Key，请妥善保管。</small>
+          <div>
+            <button class="dialog-button" type="button" data-close-modal="batchExportModal">取消</button>
+            <button class="dialog-button primary" type="button" id="confirmBatchExportButton" disabled>导出 0 个账号</button>
+          </div>
+        </div>
+      </section>
     </div>
 
     <div class="modal-backdrop" id="tokenModal" hidden>

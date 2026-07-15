@@ -18,7 +18,12 @@ pub(crate) async fn open_release_page(url: String) -> Result<(), String> {
     run_native_task(move || open_project_release_url(&url)).await
 }
 
-async fn run_native_task<T, F>(task: F) -> Result<T, String>
+#[tauri::command]
+pub(crate) async fn open_account_help_page(url: String) -> Result<(), String> {
+    run_native_task(move || open_account_help_url(&url)).await
+}
+
+pub(crate) async fn run_native_task<T, F>(task: F) -> Result<T, String>
 where
     T: Send + 'static,
     F: FnOnce() -> Result<T, String> + Send + 'static,
@@ -125,6 +130,94 @@ pub(crate) async fn save_desktop_account(
 }
 
 #[tauri::command]
+pub(crate) async fn import_desktop_accounts(
+    app: AppHandle,
+    accounts: Vec<Value>,
+    update_existing: bool,
+) -> Result<DesktopBatchImportResponse, String> {
+    run_native_task(move || {
+        let runtime_dir = ensure_runtime(&app)?;
+        let original_config = read_desktop_config_map(&runtime_dir)?;
+        let mut next_config = original_config.clone();
+        let summary =
+            apply_desktop_batch_import(configs_mut(&mut next_config)?, &accounts, update_existing)?;
+
+        if summary.imported == 0 && summary.updated == 0 {
+            return Ok(DesktopBatchImportResponse {
+                snapshot: build_desktop_snapshot(&app, runtime_dir)?,
+                imported: 0,
+                updated: 0,
+                skipped: summary.skipped,
+            });
+        }
+
+        let config_path = runtime_dir.join(CONFIG_FILE);
+        let backup_path = runtime_dir.join(format!("{CONFIG_FILE}.import-backup"));
+        if config_path.exists() {
+            fs::copy(&config_path, &backup_path)
+                .map_err(|error| format!("无法备份导入前配置: {error}"))?;
+        }
+        write_desktop_config_map(&runtime_dir, &next_config)?;
+
+        let snapshot = if status_for_runtime(runtime_dir.clone()).running {
+            match call_admin_api(&app, &runtime_dir, "/admin/api/config/reload", "POST", None) {
+                Ok(admin_snapshot) => {
+                    build_desktop_snapshot_from_admin(runtime_dir.clone(), admin_snapshot)?
+                }
+                Err(error) => {
+                    let _ = write_desktop_config_map(&runtime_dir, &original_config);
+                    let _ = call_admin_api(
+                        &app,
+                        &runtime_dir,
+                        "/admin/api/config/reload",
+                        "POST",
+                        None,
+                    );
+                    return Err(format!("批量导入失败，已恢复原配置: {error}"));
+                }
+            }
+        } else {
+            build_desktop_snapshot(&app, runtime_dir.clone())?
+        };
+
+        Ok(DesktopBatchImportResponse {
+            snapshot,
+            imported: summary.imported,
+            updated: summary.updated,
+            skipped: summary.skipped,
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn save_desktop_account_order(
+    app: AppHandle,
+    ordered_indexes: Vec<usize>,
+) -> Result<DesktopSnapshot, String> {
+    run_snapshot_task(move || {
+        let runtime_dir = ensure_runtime(&app)?;
+        if status_for_runtime(runtime_dir.clone()).running {
+            let body = serde_json::json!({ "ordered_indexes": ordered_indexes });
+            let admin_snapshot = call_admin_api(
+                &app,
+                &runtime_dir,
+                "/admin/api/configs/order",
+                "POST",
+                Some(body),
+            )?;
+            return build_desktop_snapshot_from_admin(runtime_dir, admin_snapshot);
+        }
+
+        let mut config = read_desktop_config_map(&runtime_dir)?;
+        apply_desktop_account_order(configs_mut(&mut config)?, &ordered_indexes)?;
+        write_desktop_config_map(&runtime_dir, &config)?;
+        build_desktop_snapshot(&app, runtime_dir)
+    })
+    .await
+}
+
+#[tauri::command]
 pub(crate) async fn activate_desktop_account(
     app: AppHandle,
     index: usize,
@@ -193,15 +286,26 @@ pub(crate) async fn restore_desktop_account(
 ) -> Result<DesktopSnapshot, String> {
     run_snapshot_task(move || {
         let runtime_dir = ensure_runtime(&app)?;
-        let body = Value::Object(Map::from_iter([("deleted_at".to_string(), Value::Null)]));
-        let admin_snapshot = call_admin_api(
-            &app,
-            &runtime_dir,
-            &format!("/admin/api/configs/{index}"),
-            "PATCH",
-            Some(body),
-        )?;
-        build_desktop_snapshot_from_admin(runtime_dir, admin_snapshot)
+        let mut config = read_desktop_config_map(&runtime_dir)?;
+        let sort_order = restore_desktop_account_at_end(configs_mut(&mut config)?, index)?;
+        let body = serde_json::json!({
+            "deleted_at": Value::Null,
+            "sort_order": sort_order,
+        });
+
+        if status_for_runtime(runtime_dir.clone()).running {
+            let admin_snapshot = call_admin_api(
+                &app,
+                &runtime_dir,
+                &format!("/admin/api/configs/{index}"),
+                "PATCH",
+                Some(body),
+            )?;
+            return build_desktop_snapshot_from_admin(runtime_dir, admin_snapshot);
+        }
+
+        write_desktop_config_map(&runtime_dir, &config)?;
+        build_desktop_snapshot(&app, runtime_dir)
     })
     .await
 }

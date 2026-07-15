@@ -51,7 +51,6 @@
 :root[data-theme="dark"] .primary-button,
 :root[data-theme="dark"] .add-account-button,
 :root[data-theme="dark"] .primary-service-button,
-:root[data-theme="dark"] .parse-json-button,
 :root[data-theme="dark"] .dialog-button-primary {
   border-color: #1876c9;
   color: #fff;
@@ -159,14 +158,11 @@
   background: rgba(255, 255, 255, 0.025);
 }
 
-:root[data-theme="dark"] .empty-icon {
-  background: var(--blue-soft);
-}
-
 :root[data-theme="dark"] .settings-section-title,
 :root[data-theme="dark"] .info-dot,
 :root[data-theme="dark"] .optional-pill,
 :root[data-theme="dark"] .field-name,
+:root[data-theme="dark"] .technical-name,
 :root[data-theme="dark"] .json-helper-head label {
   color: #aaaeb8;
 }
@@ -176,17 +172,14 @@
 }
 
 :root[data-theme="dark"] .theme-segmented {
-  border-color: rgba(77, 163, 255, 0.72);
-  background: #3a3b42;
-}
-
-:root[data-theme="dark"] .theme-segment + .theme-segment {
-  border-left-color: rgba(77, 163, 255, 0.48);
+  border-color: #505159;
+  background: #34353b;
 }
 
 :root[data-theme="dark"] .theme-segment.active {
-  color: #fff;
-  background: #1876c9;
+  color: var(--text);
+  background: #505159;
+  box-shadow: none;
 }
 
 :root[data-theme="dark"] .info-dot {
@@ -233,6 +226,28 @@
 :root[data-theme="dark"] .readonly-pair,
 :root[data-theme="dark"] .optional-pill {
   background: #3a3b42;
+}
+
+:root[data-theme="dark"] .recommended-pill {
+  color: #f1c473;
+  background: #4b3b20;
+}
+
+:root[data-theme="dark"] .account-import-box,
+:root[data-theme="dark"] .account-mode-note,
+:root[data-theme="dark"] .token-format-example {
+  border-color: #3a4655;
+  background: #343b45;
+}
+
+:root[data-theme="dark"] .account-import-copy code {
+  color: #b1bac7;
+}
+
+:root[data-theme="dark"] .parse-json-button {
+  border-color: rgba(77, 163, 255, 0.62);
+  color: var(--accent);
+  background: var(--panel);
 }
 
 :root[data-theme="dark"] input[type="datetime-local"]::-webkit-calendar-picker-indicator {

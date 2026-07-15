@@ -112,23 +112,34 @@ export function getAccountFilterCounts(accounts, searchQuery = '') {
 }
 
 export function sortAccounts(accounts, state) {
+  if (state.filterType === 'deleted') {
+    return [...accounts].sort((left, right) => {
+      const leftTime = getDeletedAtTimestamp(left);
+      const rightTime = getDeletedAtTimestamp(right);
+      if (leftTime !== rightTime) return rightTime - leftTime;
+      return getSortOrder(left) - getSortOrder(right);
+    });
+  }
+
   const sorted = [...accounts].sort((left, right) => {
+    const activeDiff = Number(Boolean(right.is_active)) - Number(Boolean(left.is_active));
+    if (activeDiff !== 0) return activeDiff;
     if (state.sortBy === 'primaryQuota') {
       return quotaSortValue(left, getPrimaryQuota) - quotaSortValue(right, getPrimaryQuota);
     }
     if (state.sortBy === 'weeklyQuota') {
       return quotaSortValue(left, getWeeklyQuota) - quotaSortValue(right, getWeeklyQuota);
     }
-    const activeDiff = Number(Boolean(right.is_active)) - Number(Boolean(left.is_active));
-    if (activeDiff !== 0) return activeDiff;
     return getSortOrder(left) - getSortOrder(right);
   });
 
-  if (state.sortBy !== 'default' && state.sortDirection === 'desc') {
-    sorted.reverse();
-  }
-  if (state.sortBy === 'default' && state.sortDirection === 'asc') {
-    sorted.reverse();
+  const shouldReverseRemaining = state.sortBy === 'default'
+    ? state.sortDirection === 'asc'
+    : state.sortDirection === 'desc';
+  if (shouldReverseRemaining) {
+    const activeAccounts = sorted.filter(account => Boolean(account.is_active));
+    const remainingAccounts = sorted.filter(account => !account.is_active).reverse();
+    return [...activeAccounts, ...remainingAccounts];
   }
   return sorted;
 }
@@ -174,6 +185,24 @@ export function formatDateTimeLocalValue(value) {
   if (!date || Number.isNaN(date.getTime())) return '';
   const pad = number => String(number).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+export function formatDeletedAt(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const parsed = parseDateTime(raw);
+  const date = parsed || new Date(raw);
+  if (Number.isNaN(date.getTime())) return raw.replace('T', ' ').replace(/:\d{2}(?:\.\d+)?(?:Z)?$/, '');
+  return formatDateTimeLocalValue(date).replace('T', ' ');
+}
+
+function getDeletedAtTimestamp(account) {
+  const raw = String(normalizeAccount(account).item?.deleted_at || '').trim();
+  if (!raw) return Number.NEGATIVE_INFINITY;
+  const parsed = parseDateTime(raw);
+  if (parsed) return parsed.getTime();
+  const timestamp = Date.parse(raw);
+  return Number.isNaN(timestamp) ? Number.NEGATIVE_INFINITY : timestamp;
 }
 
 export function setDateTimeInput(input, value) {
@@ -329,6 +358,36 @@ export function getRuntimeError(account) {
     errorText = match ? match[1].trim() : '';
   }
   return formatRuntimeErrorText(errorText, account);
+}
+
+export function getAccountRefreshResult(account) {
+  const normalized = normalizeAccount(account);
+  const runtime = normalized.runtime || {};
+  const checked = typeof runtime.last_checked_at === 'number' && Number.isFinite(runtime.last_checked_at);
+  if (!checked) return { checked: false, ok: false, message: '' };
+
+  const errorText = getRuntimeError(normalized);
+  if (errorText) return { checked: true, ok: false, message: errorText };
+
+  const reason = runtime.reason || '';
+  if (reason === 'missing_credentials') {
+    return {
+      checked: true,
+      ok: false,
+      message: isApiKeyAccount(normalized) ? 'API Key 缺失或无效' : 'Token 已失效或缺少凭证',
+    };
+  }
+  if (reason === 'quota_check_failed') {
+    return { checked: true, ok: false, message: '额度检查失败，请稍后重试' };
+  }
+  if (reason === 'apikey_check_failed') {
+    return { checked: true, ok: false, message: '上游检查失败，请检查 API Key 或 Base URL' };
+  }
+  if (reason === 'deleted') {
+    return { checked: true, ok: false, message: '未获得检查结果' };
+  }
+
+  return { checked: true, ok: true, message: '检查成功' };
 }
 
 export function getHealthText(account) {

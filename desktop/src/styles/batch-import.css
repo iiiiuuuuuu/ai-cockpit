@@ -1,0 +1,564 @@
+.add-account-actions {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.add-account-split {
+  display: flex;
+  align-items: stretch;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 82, 164, 0.18);
+}
+
+.add-account-button,
+.add-account-menu-toggle {
+  height: 30px;
+  border: 1px solid var(--accent);
+  color: #fff;
+  background: var(--accent);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.add-account-button {
+  min-width: 72px;
+  border-radius: 8px 0 0 8px;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.add-account-menu-toggle {
+  display: grid;
+  place-items: center;
+  width: 27px;
+  border-left-color: rgba(255, 255, 255, 0.32);
+  border-radius: 0 8px 8px 0;
+  padding: 0;
+}
+
+.add-account-menu-toggle:hover,
+.add-account-menu-toggle[aria-expanded="true"] {
+  border-color: #005ebc;
+  border-left-color: rgba(255, 255, 255, 0.32);
+  background: #005ebc;
+}
+
+.add-account-menu-toggle svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.add-account-menu {
+  position: absolute;
+  z-index: 20;
+  top: 36px;
+  right: 0;
+  width: 140px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px;
+  background: var(--panel);
+  box-shadow: 0 10px 28px rgba(24, 29, 35, 0.16);
+}
+
+.add-account-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 32px;
+  border: 0;
+  border-radius: 5px;
+  padding: 0 9px;
+  color: var(--text);
+  background: transparent;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.add-account-menu button:hover {
+  background: var(--chip);
+}
+
+.add-account-menu svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: var(--muted);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+}
+
+.batch-import-modal {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  width: min(900px, calc(100vw - 32px));
+  border-radius: 14px;
+}
+
+.batch-import-modal[data-stage="files"] {
+  height: auto;
+}
+
+.batch-import-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-bottom: 1px solid var(--line);
+  padding: 10px 20px;
+  background: rgba(249, 249, 250, 0.72);
+}
+
+.batch-import-step {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--soft);
+  font-size: 10px;
+}
+
+.batch-import-step:nth-child(2) {
+  justify-content: center;
+}
+
+.batch-import-step:nth-child(3) {
+  justify-content: flex-end;
+}
+
+.batch-import-step span {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  color: var(--muted);
+  background: var(--chip);
+  font-size: 9px;
+}
+
+.batch-import-step strong {
+  font-weight: 550;
+}
+
+.batch-import-step.active {
+  color: var(--accent);
+}
+
+.batch-import-step.active span {
+  color: #fff;
+  background: var(--accent);
+}
+
+.batch-import-step.done {
+  color: var(--green);
+}
+
+.batch-import-step.done span {
+  color: #fff;
+  background: var(--green);
+}
+
+.batch-import-body {
+  min-height: 440px;
+  overflow: auto;
+  padding: 18px 20px;
+}
+
+.batch-import-modal[data-stage="files"] .batch-import-body {
+  min-height: 0;
+}
+
+.batch-import-panel:not(.active),
+.batch-import-footer-actions[hidden] {
+  display: none;
+}
+
+.batch-import-dropzone {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 190px;
+  border: 1.5px dashed rgba(0, 102, 204, 0.42);
+  border-radius: 10px;
+  padding: 18px;
+  color: var(--text);
+  background: rgba(242, 248, 255, 0.72);
+  text-align: center;
+}
+
+.batch-import-dropzone:hover,
+.batch-import-dropzone.dragging {
+  border-color: var(--accent);
+  background: var(--blue-soft);
+}
+
+.batch-import-upload-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  margin-bottom: 11px;
+  border-radius: 8px;
+  color: var(--accent);
+  background: var(--blue-soft);
+}
+
+.batch-import-upload-icon svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+}
+
+.batch-import-dropzone > strong {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.batch-import-dropzone > strong span {
+  color: var(--accent);
+}
+
+.batch-import-dropzone > small {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.batch-import-formats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.batch-import-formats > div {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.batch-import-formats strong,
+.batch-import-formats small {
+  display: block;
+}
+
+.batch-import-formats strong {
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.batch-import-formats small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.batch-import-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.batch-import-preview-head > div strong,
+.batch-import-preview-head > div small {
+  display: inline;
+}
+
+.batch-import-preview-head > div strong {
+  font-size: 13px;
+}
+
+.batch-import-preview-head > div small {
+  margin-left: 7px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.batch-import-preview-head label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.batch-import-preview-head select {
+  width: 184px;
+  height: 30px;
+  padding: 0 26px 0 9px;
+  font-size: 10px;
+}
+
+.batch-import-preview-head select:focus-visible {
+  border-color: rgba(0, 102, 204, 0.52);
+  outline: none;
+  box-shadow: none;
+}
+
+.batch-import-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 12px 0;
+}
+
+.batch-import-summary span {
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: var(--muted);
+  background: var(--chip);
+  font-size: 9px;
+}
+
+.batch-import-summary .good {
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+.batch-import-summary .warn {
+  color: #97620b;
+  background: var(--orange-soft);
+}
+
+.batch-import-summary .bad {
+  color: var(--red);
+  background: var(--red-soft);
+}
+
+.batch-import-table-wrap {
+  max-height: 340px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.batch-import-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 10px;
+}
+
+.batch-import-table th,
+.batch-import-table td {
+  min-width: 0;
+  padding: 8px 9px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.batch-import-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  color: var(--muted);
+  background: var(--panel);
+  font-weight: 600;
+}
+
+.batch-import-table th:nth-child(1) { width: 34%; }
+.batch-import-table th:nth-child(2) { width: 10%; }
+.batch-import-table th:nth-child(3) { width: 19%; }
+.batch-import-table th:nth-child(4) { width: 21%; }
+.batch-import-table th:nth-child(5) { width: 16%; }
+
+.batch-import-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.batch-import-account-name,
+.batch-import-account-detail,
+.batch-import-source {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-import-account-name {
+  font-weight: 650;
+}
+
+.batch-import-account-detail {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.batch-import-type {
+  display: inline-block;
+  border-radius: 5px;
+  padding: 2px 5px;
+  color: #536475;
+  background: var(--chip);
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.batch-import-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.batch-import-status::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--soft);
+  content: "";
+}
+
+.batch-import-status.good { color: var(--green); }
+.batch-import-status.good::before { background: var(--green); }
+.batch-import-status.warn { color: #97620b; }
+.batch-import-status.warn::before { background: var(--orange); }
+.batch-import-status.bad { color: var(--red); }
+.batch-import-status.bad::before { background: var(--red); }
+
+.batch-import-result {
+  display: grid;
+  justify-items: center;
+  padding: 36px 8px 18px;
+  text-align: center;
+}
+
+.batch-import-result-icon {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  color: #fff;
+  background: var(--green);
+  font-size: 25px;
+}
+
+.batch-import-result > strong {
+  margin-top: 13px;
+  font-size: 17px;
+}
+
+.batch-import-result > small {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.batch-import-result-counts {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.batch-import-result-counts > div {
+  min-width: 112px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.batch-import-result-counts strong,
+.batch-import-result-counts small {
+  display: block;
+}
+
+.batch-import-result-counts strong {
+  font-size: 18px;
+}
+
+.batch-import-result-counts small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.batch-import-footer {
+  justify-content: space-between;
+}
+
+.batch-import-footer > small {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.batch-import-footer-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.batch-import-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 72px;
+  height: 32px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  padding: 0 12px;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.batch-import-button.secondary {
+  color: var(--text);
+  background: var(--panel);
+}
+
+.batch-import-button.primary {
+  border-color: var(--accent);
+  color: #fff;
+  background: var(--accent);
+}
+
+.batch-import-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+:root[data-theme="dark"] .add-account-button,
+:root[data-theme="dark"] .add-account-menu-toggle,
+:root[data-theme="dark"] .batch-import-button.primary {
+  border-color: #1876c9;
+  background: #1876c9;
+}
+
+:root[data-theme="dark"] .batch-import-steps,
+:root[data-theme="dark"] .batch-import-dropzone {
+  background: #34353b;
+}
+
+:root[data-theme="dark"] .batch-import-summary .warn,
+:root[data-theme="dark"] .batch-import-status.warn {
+  color: var(--orange);
+}
+
+@media (max-width: 760px) {
+  .batch-import-formats {
+    grid-template-columns: 1fr;
+  }
+
+  .batch-import-preview-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .batch-import-table th:nth-child(3),
+  .batch-import-table td:nth-child(3) {
+    display: none;
+  }
+}

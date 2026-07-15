@@ -25,12 +25,14 @@ use windows_sys::Win32::System::Threading::{
     GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 
+mod account_export;
 mod commands;
 mod desktop_data;
 mod runtime;
 mod service;
 mod shell;
 
+use account_export::*;
 use commands::*;
 use service::*;
 use shell::*;
@@ -106,6 +108,22 @@ struct DesktopSnapshot {
     access_tokens: Vec<DesktopAccessToken>,
 }
 
+#[derive(Clone, Debug, Default)]
+struct DesktopBatchImportSummary {
+    imported: usize,
+    updated: usize,
+    skipped: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopBatchImportResponse {
+    snapshot: DesktopSnapshot,
+    imported: usize,
+    updated: usize,
+    skipped: usize,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SaveDesktopSettingsRequest {
@@ -134,9 +152,13 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_app_version,
             open_release_page,
+            open_account_help_page,
             get_desktop_snapshot,
             save_desktop_settings,
             save_desktop_account,
+            export_desktop_accounts,
+            import_desktop_accounts,
+            save_desktop_account_order,
             activate_desktop_account,
             refresh_desktop_account,
             toggle_desktop_account_auto_switch,
@@ -182,6 +204,7 @@ mod tests {
         let source_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
         [
             "main.rs",
+            "account_export.rs",
             "commands.rs",
             "desktop_data.rs",
             "runtime.rs",
@@ -258,6 +281,232 @@ mod tests {
     }
 
     #[test]
+    fn batch_import_skips_existing_accounts_and_appends_new_accounts_once() {
+        let mut configs = vec![serde_json::json!({
+            "description": "existing@example.com",
+            "account_id": "acc-existing",
+            "access_token": "old-access",
+            "sort_order": 10
+        })];
+        let requests = vec![
+            serde_json::json!({
+                "mode": "token",
+                "description": "existing@example.com",
+                "account_id": "acc-existing",
+                "access_token": "old-access"
+            }),
+            serde_json::json!({
+                "mode": "token",
+                "description": "new@example.com",
+                "account_id": "acc-new",
+                "access_token": "new-access"
+            }),
+        ];
+
+        let summary =
+            apply_desktop_batch_import(&mut configs, &requests, false).expect("batch import");
+
+        assert_eq!(summary.imported, 1);
+        assert_eq!(summary.updated, 0);
+        assert_eq!(summary.skipped, 1);
+        assert_eq!(configs.len(), 2);
+        assert_eq!(configs[1].get("account_id"), Some(&Value::from("acc-new")));
+        assert_eq!(configs[1].get("sort_order"), Some(&Value::from(20)));
+    }
+
+    #[test]
+    fn batch_import_preserves_lifecycle_fields_for_new_accounts_in_request_order() {
+        let mut configs = vec![serde_json::json!({
+            "account_id": "acc-existing",
+            "access_token": "existing-access",
+            "sort_order": 10
+        })];
+        let requests = vec![
+            serde_json::json!({
+                "mode": "token",
+                "account_id": "acc-deleted",
+                "access_token": "deleted-access",
+                "deleted_at": "2026-07-01T10:00:00Z",
+                "auto_switch_disabled": true
+            }),
+            serde_json::json!({
+                "mode": "apikey",
+                "alias": "Second API",
+                "base_url": "https://api.example.com/v1",
+                "apikey": "sk-second",
+                "deleted_at": "2026-07-02T10:00:00Z"
+            }),
+        ];
+
+        let summary = apply_desktop_batch_import(&mut configs, &requests, false)
+            .expect("batch lifecycle import");
+
+        assert_eq!(summary.imported, 2);
+        assert_eq!(configs.len(), 3);
+        assert_eq!(
+            configs[1].get("account_id"),
+            Some(&Value::from("acc-deleted"))
+        );
+        assert_eq!(
+            configs[1].get("deleted_at"),
+            Some(&Value::from("2026-07-01T10:00:00Z"))
+        );
+        assert_eq!(
+            configs[1].get("auto_switch_disabled"),
+            Some(&Value::Bool(true))
+        );
+        assert_eq!(configs[1].get("sort_order"), Some(&Value::from(20)));
+        assert_eq!(configs[2].get("alias"), Some(&Value::from("Second API")));
+        assert_eq!(
+            configs[2].get("deleted_at"),
+            Some(&Value::from("2026-07-02T10:00:00Z"))
+        );
+        assert_eq!(configs[2].get("sort_order"), Some(&Value::from(30)));
+    }
+
+    #[test]
+    fn batch_import_updates_credentials_without_overwriting_local_account_metadata() {
+        let mut configs = vec![serde_json::json!({
+            "description": "old@example.com",
+            "alias": "Primary",
+            "account_id": "acc-existing",
+            "client_id": "old-client",
+            "access_token": "old-access",
+            "refresh_token": "old-refresh",
+            "price_yuan": 140,
+            "started_at": "2026-07-01T10:00",
+            "sort_order": 30
+        })];
+        let requests = vec![serde_json::json!({
+            "mode": "token",
+            "description": "new@example.com",
+            "alias": "Imported alias",
+            "account_id": "acc-existing",
+            "client_id": "new-client",
+            "access_token": "new-access",
+            "refresh_token": "new-refresh",
+            "price_yuan": 999,
+            "started_at": "2026-07-14T10:00",
+            "deleted_at": "2026-07-14T09:00:00Z",
+            "auto_switch_disabled": true
+        })];
+
+        let summary = apply_desktop_batch_import(&mut configs, &requests, true)
+            .expect("batch credential update");
+        let updated = configs[0].as_object().expect("updated account");
+
+        assert_eq!(summary.imported, 0);
+        assert_eq!(summary.updated, 1);
+        assert_eq!(summary.skipped, 0);
+        assert_eq!(
+            updated.get("access_token"),
+            Some(&Value::from("new-access"))
+        );
+        assert_eq!(
+            updated.get("refresh_token"),
+            Some(&Value::from("new-refresh"))
+        );
+        assert_eq!(updated.get("client_id"), Some(&Value::from("new-client")));
+        assert_eq!(
+            updated.get("description"),
+            Some(&Value::from("new@example.com"))
+        );
+        assert_eq!(updated.get("alias"), Some(&Value::from("Primary")));
+        assert_eq!(updated.get("price_yuan"), Some(&Value::from(140)));
+        assert_eq!(
+            updated.get("started_at"),
+            Some(&Value::from("2026-07-01T10:00"))
+        );
+        assert_eq!(updated.get("sort_order"), Some(&Value::from(30)));
+        assert_eq!(updated.get("deleted_at"), None);
+        assert_eq!(updated.get("auto_switch_disabled"), None);
+    }
+
+    #[test]
+    fn batch_import_never_restores_deleted_accounts_implicitly() {
+        let mut configs = vec![serde_json::json!({
+            "description": "deleted@example.com",
+            "account_id": "acc-deleted",
+            "access_token": "old-access",
+            "deleted_at": "2026-07-01T10:00:00",
+            "sort_order": 10
+        })];
+        let requests = vec![serde_json::json!({
+            "mode": "token",
+            "description": "deleted@example.com",
+            "account_id": "acc-deleted",
+            "access_token": "new-access"
+        })];
+
+        let summary = apply_desktop_batch_import(&mut configs, &requests, true)
+            .expect("skip deleted account");
+
+        assert_eq!(summary.imported, 0);
+        assert_eq!(summary.updated, 0);
+        assert_eq!(summary.skipped, 1);
+        assert_eq!(
+            configs[0].get("access_token"),
+            Some(&Value::from("old-access"))
+        );
+        assert!(configs[0].get("deleted_at").is_some());
+    }
+
+    #[test]
+    fn batch_import_updates_a_subject_matched_token_by_preview_index() {
+        let mut configs = vec![serde_json::json!({
+            "description": "subject@example.com",
+            "access_token": "old-access",
+            "sort_order": 10
+        })];
+        let requests = vec![serde_json::json!({
+            "mode": "token",
+            "existing_index": 0,
+            "description": "subject@example.com",
+            "access_token": "new-access"
+        })];
+
+        let summary = apply_desktop_batch_import(&mut configs, &requests, true)
+            .expect("update subject matched token");
+
+        assert_eq!(summary.updated, 1);
+        assert_eq!(configs.len(), 1);
+        assert_eq!(
+            configs[0].get("access_token"),
+            Some(&Value::from("new-access"))
+        );
+    }
+
+    #[test]
+    fn batch_import_rejects_a_stale_preview_index_for_another_account_id() {
+        let mut configs = vec![serde_json::json!({
+            "account_id": "workspace-one",
+            "access_token": "first-access",
+            "sort_order": 10
+        })];
+        let requests = vec![serde_json::json!({
+            "mode": "token",
+            "existing_index": 0,
+            "account_id": "workspace-two",
+            "access_token": "second-access"
+        })];
+
+        let summary = apply_desktop_batch_import(&mut configs, &requests, true)
+            .expect("do not overwrite another workspace");
+
+        assert_eq!(summary.imported, 1);
+        assert_eq!(summary.updated, 0);
+        assert_eq!(configs.len(), 2);
+        assert_eq!(
+            configs[0].get("access_token"),
+            Some(&Value::from("first-access"))
+        );
+        assert_eq!(
+            configs[1].get("account_id"),
+            Some(&Value::from("workspace-two"))
+        );
+    }
+
+    #[test]
     fn builds_desktop_settings_admin_body_for_runtime_reload() {
         let mut config = Map::new();
         config.insert("port".to_string(), Value::from(3020));
@@ -282,6 +531,48 @@ mod tests {
             desktop_settings_admin_body(&config).get("proxy_port"),
             Some(&Value::Null)
         );
+    }
+
+    #[test]
+    fn applies_custom_order_only_to_non_deleted_accounts() {
+        let mut configs = vec![
+            serde_json::json!({ "alias": "first", "sort_order": 10 }),
+            serde_json::json!({ "alias": "deleted", "sort_order": 20, "deleted_at": "2026-07-14T10:00:00" }),
+            serde_json::json!({ "alias": "third", "sort_order": 30 }),
+        ];
+
+        apply_desktop_account_order(&mut configs, &[2, 0]).expect("apply account order");
+
+        assert_eq!(configs[2].get("sort_order"), Some(&Value::from(10)));
+        assert_eq!(configs[0].get("sort_order"), Some(&Value::from(20)));
+        assert_eq!(configs[1].get("sort_order"), Some(&Value::from(20)));
+    }
+
+    #[test]
+    fn rejects_custom_order_that_omits_an_active_account() {
+        let mut configs = vec![
+            serde_json::json!({ "alias": "first" }),
+            serde_json::json!({ "alias": "second" }),
+        ];
+
+        let error = apply_desktop_account_order(&mut configs, &[1]).expect_err("missing index");
+
+        assert!(error.contains("全部未删除账号"));
+    }
+
+    #[test]
+    fn restores_deleted_account_at_the_end_of_custom_order() {
+        let mut configs = vec![
+            serde_json::json!({ "alias": "first", "sort_order": 10 }),
+            serde_json::json!({ "alias": "deleted", "sort_order": 5, "deleted_at": "2026-07-14T10:00:00" }),
+            serde_json::json!({ "alias": "third", "sort_order": 20 }),
+        ];
+
+        let sort_order = restore_desktop_account_at_end(&mut configs, 1).expect("restore account");
+
+        assert_eq!(sort_order, 30);
+        assert_eq!(configs[1].get("sort_order"), Some(&Value::from(30)));
+        assert_eq!(configs[1].get("deleted_at"), None);
     }
 
     #[test]
@@ -548,6 +839,14 @@ mod tests {
         assert!(!is_project_release_url(
             "https://github.com/other/repository/releases/tag/v1.0.0"
         ));
+    }
+
+    #[test]
+    fn accepts_only_approved_chatgpt_account_help_urls() {
+        assert!(is_account_help_url("https://chatgpt.com/"));
+        assert!(is_account_help_url("https://chatgpt.com/api/auth/session"));
+        assert!(!is_account_help_url("https://chatgpt.com/api/other"));
+        assert!(!is_account_help_url("https://example.com/"));
     }
 
     #[test]

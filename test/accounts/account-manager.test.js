@@ -1295,6 +1295,76 @@ test('refreshQuotas releases the monitor lock after a quota timeout', async () =
   assert.equal(configs[0].runtime.available, true);
 });
 
+test('refreshConfig manually checks a deleted token without enabling or selecting it', async () => {
+  const deleted = createConfig(0, {
+    enabled: false,
+    available: false,
+    reason: 'deleted',
+  }, {
+    deleted: true,
+  });
+  const active = createConfig(1, { available: true, reason: 'ok' });
+  const quotaResponses = createBufferedRequestRecorder([
+    {
+      rate_limit: {
+        allowed: true,
+        limit_reached: false,
+        primary_window: { used_percent: 25, reset_at: 1713350000 },
+        secondary_window: { used_percent: 40, reset_at: 1713360000 },
+      },
+    },
+  ]);
+  const { manager } = createManager([deleted, active], {
+    initialActiveConfigIndex: 1,
+    requestBufferedFn: quotaResponses.requestBuffered,
+  });
+
+  await manager.refreshConfig(0, 'admin_refresh_single');
+
+  assert.equal(quotaResponses.getCallCount(), 1);
+  assert.equal(deleted.runtime.primaryRemainingPercent, 75);
+  assert.equal(deleted.runtime.secondaryRemainingPercent, 60);
+  assert.equal(deleted.runtime.available, true);
+  assert.equal(deleted.runtime.enabled, false);
+  assert.equal(deleted.deleted, true);
+  assert.equal(manager.getActiveConfig(), active);
+});
+
+test('refreshConfig manually probes a deleted API key without enabling or selecting it', async () => {
+  const deleted = createConfig(0, {
+    enabled: false,
+    available: false,
+    reason: 'deleted',
+  }, {
+    type: 'apikey',
+    deleted: true,
+    baseUrl: 'https://api.example.com/v1',
+    apiKey: 'sk-deleted',
+    support: ['gpt'],
+  });
+  const active = createConfig(1, { available: true, reason: 'ok' });
+  const calls = [];
+  const { manager } = createManager([deleted, active], {
+    initialActiveConfigIndex: 1,
+    requestBufferedFn: requestOptions => {
+      calls.push(requestOptions);
+      return Promise.resolve({
+        statusCode: 200,
+        bodyText: JSON.stringify({ id: 'chatcmpl-deleted' }),
+      });
+    },
+  });
+
+  await manager.refreshConfig(0, 'admin_refresh_single');
+
+  assert.equal(calls.length, 1);
+  assert.equal(deleted.runtime.available, true);
+  assert.equal(deleted.runtime.reason, 'apikey');
+  assert.equal(deleted.runtime.enabled, false);
+  assert.equal(deleted.deleted, true);
+  assert.equal(manager.getActiveConfig(), active);
+});
+
 test('refreshConfig probes a claude API key config and marks it available', async () => {
   const configs = [
     createConfig(0, { available: true, reason: 'apikey' }, {

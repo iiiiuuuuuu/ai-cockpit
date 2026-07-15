@@ -25,6 +25,11 @@
   width: 420px;
 }
 
+.account-modal {
+  position: relative;
+  width: min(900px, calc(100vw - 32px));
+}
+
 .confirm-modal {
   grid-template-rows: auto auto auto;
   width: min(460px, calc(100vw - 32px));
@@ -188,10 +193,10 @@
   grid-template-columns: 18px minmax(0, 1fr);
   gap: 9px;
   align-items: start;
-  min-height: 62px;
+  min-height: 54px;
   border: 1px solid #dedee3;
-  border-radius: 12px;
-  padding: 10px;
+  border-radius: 9px;
+  padding: 8px 10px;
   color: var(--text);
   background: #fff;
   text-align: left;
@@ -232,7 +237,7 @@
 
 .modal-body {
   overflow: auto;
-  padding: 14px 20px 13px;
+  padding: 15px 20px 18px;
 }
 
 .mode-panel {
@@ -245,7 +250,7 @@
 
 .form-grid {
   display: grid;
-  gap: 7px;
+  gap: 10px 12px;
 }
 
 .form-grid.two-columns {
@@ -259,6 +264,7 @@
 .field {
   display: grid;
   gap: 3px;
+  min-width: 0;
 }
 
 .secret-input {
@@ -308,10 +314,18 @@
 }
 
 .field-name,
+.technical-name,
 .json-helper-head label {
   color: #3a3a3c;
   font-size: 11px;
   font-weight: 600;
+}
+
+.technical-name {
+  color: var(--soft);
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 9px;
+  font-weight: 500;
 }
 
 .field-label-line {
@@ -322,6 +336,7 @@
 }
 
 .required-pill,
+.recommended-pill,
 .optional-pill {
   border-radius: 999px;
   padding: 1px 5px;
@@ -333,6 +348,11 @@
 .required-pill {
   color: var(--red);
   background: var(--red-soft);
+}
+
+.recommended-pill {
+  color: #93610a;
+  background: #fff5df;
 }
 
 .optional-pill {
@@ -360,8 +380,17 @@
 }
 
 #tokenJsonInput {
-  height: 132px;
-  min-height: 132px;
+  height: 68px;
+  min-height: 68px;
+  resize: none;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+#tokenJsonInput::placeholder {
+  color: #a5acb7;
+  font-size: 10px;
+  opacity: 1;
 }
 
 .inline-message {
@@ -442,13 +471,205 @@
 }
 
 .parse-json-button {
-  min-height: 28px;
-  border: 1px solid rgba(0, 102, 204, 0.28);
+  width: 70px;
+  height: 26px;
+  border: 1px solid rgba(0, 102, 204, 0.48);
+  border-radius: 7px;
+  padding: 0;
+  color: var(--accent);
+  background: #fff;
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.account-modal input::placeholder {
+  color: var(--soft);
+  font-size: 11px;
+  opacity: 0.82;
+}
+
+.account-modal input:focus-visible,
+.account-modal select:focus-visible,
+.account-modal textarea:focus-visible {
+  border-color: rgba(0, 102, 204, 0.52);
+  outline: none;
+  outline-offset: 0;
+  box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.12);
+}
+
+.account-form-section {
+  padding: 0 0 15px;
+  margin: 0 0 15px;
+  border-bottom: 1px solid var(--line);
+}
+
+.account-form-section:last-child {
+  padding-bottom: 0;
+  margin-bottom: 0;
+  border-bottom: 0;
+}
+
+.account-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 9px;
+}
+
+.account-section-title {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.account-section-head > span {
+  color: var(--soft);
+  font-size: 10px;
+}
+
+.text-link-button,
+.inline-link-button {
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  background: transparent;
+  font-size: 10px;
+}
+
+.inline-link-button {
+  display: inline;
+  font-size: inherit;
+  line-height: inherit;
+  vertical-align: baseline;
+}
+
+.account-import-box {
+  border: 1px solid #d8e6f5;
+  border-radius: 10px;
+  padding: 10px;
+  background: #f7faff;
+}
+
+.account-import-sources {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 32px;
+  margin-bottom: 8px;
+}
+
+.account-import-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.account-import-source-line {
+  min-width: 0;
+}
+
+.account-import-copy strong {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.account-import-copy code {
+  color: #586170;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 9px;
+}
+
+.account-import-box .inline-message {
+  min-height: 0;
+  margin-top: 5px;
+  font-size: 10px;
+}
+
+.account-mode-note {
+  margin-top: 12px;
+  border: 1px solid #e0e6ed;
   border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--muted);
+  background: #f8fafc;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.token-format-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(20, 24, 31, 0.28);
+}
+
+.token-format-card {
+  width: min(430px, 100%);
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 20px 50px rgba(20, 28, 40, 0.22);
+}
+
+.token-format-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.token-format-head strong {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.token-format-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.token-format-tab {
+  height: 27px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
   padding: 0 10px;
-  color: #fff;
-  background: var(--accent);
-  font-size: 12px;
+  color: var(--muted);
+  background: var(--panel);
+  font-size: 9px;
+}
+
+.token-format-tab.active {
+  border-color: rgba(0, 102, 204, 0.42);
+  color: var(--accent);
+  background: var(--blue-soft);
+}
+
+.token-format-example {
+  display: none;
+  min-height: 190px;
+  margin: 0;
+  overflow: auto;
+  padding: 14px 16px 16px;
+  color: var(--text);
+  background: #f8fafc;
+  font: 10px/1.55 "SF Mono", Menlo, Consolas, monospace;
+}
+
+.token-format-example.active {
+  display: block;
 }
 
 .primary-service-button {

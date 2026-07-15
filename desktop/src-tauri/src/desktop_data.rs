@@ -66,10 +66,18 @@ pub(crate) fn write_desktop_config_map(
     config: &Map<String, Value>,
 ) -> Result<(), String> {
     let config_path = runtime_dir.join(CONFIG_FILE);
+    let temp_path = runtime_dir.join(format!("{CONFIG_FILE}.tmp"));
     let rendered = serde_json::to_string_pretty(&Value::Object(config.clone()))
         .map_err(|error| format!("无法生成 openai.json: {error}"))?;
-    fs::write(&config_path, format!("{rendered}\n"))
-        .map_err(|error| format!("无法写入 {}: {error}", config_path.display()))
+    fs::write(&temp_path, format!("{rendered}\n"))
+        .map_err(|error| format!("无法写入 {}: {error}", temp_path.display()))?;
+    #[cfg(target_os = "windows")]
+    if config_path.exists() {
+        fs::remove_file(&config_path)
+            .map_err(|error| format!("无法替换 {}: {error}", config_path.display()))?;
+    }
+    fs::rename(&temp_path, &config_path)
+        .map_err(|error| format!("无法替换 {}: {error}", config_path.display()))
 }
 
 pub(crate) fn parse_bool_setting(value: Option<&Value>, fallback: bool) -> bool {
@@ -478,6 +486,78 @@ pub(crate) fn next_sort_order(configs: &[Value]) -> usize {
         + 10
 }
 
+pub(crate) fn apply_desktop_account_order(
+    configs: &mut [Value],
+    ordered_indexes: &[usize],
+) -> Result<(), String> {
+    let expected_indexes = configs
+        .iter()
+        .enumerate()
+        .filter_map(|(index, item)| {
+            let deleted = item
+                .get("deleted_at")
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.trim().is_empty());
+            (!deleted).then_some(index)
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    let ordered_set = ordered_indexes
+        .iter()
+        .copied()
+        .collect::<std::collections::BTreeSet<_>>();
+
+    if ordered_indexes.len() != ordered_set.len() || ordered_set != expected_indexes {
+        return Err("自定义排序必须包含全部未删除账号且不能重复".to_string());
+    }
+
+    for (position, index) in ordered_indexes.iter().copied().enumerate() {
+        let item = configs
+            .get_mut(index)
+            .and_then(Value::as_object_mut)
+            .ok_or_else(|| "自定义排序包含无效账号索引".to_string())?;
+        item.insert("sort_order".to_string(), Value::from((position + 1) * 10));
+    }
+    Ok(())
+}
+
+pub(crate) fn restore_desktop_account_at_end(
+    configs: &mut [Value],
+    index: usize,
+) -> Result<usize, String> {
+    let active_accounts = configs
+        .iter()
+        .enumerate()
+        .filter(|(item_index, item)| {
+            *item_index != index
+                && !item
+                    .get("deleted_at")
+                    .and_then(Value::as_str)
+                    .is_some_and(|value| !value.trim().is_empty())
+        })
+        .collect::<Vec<_>>();
+    let max_sort_order = active_accounts
+        .iter()
+        .filter_map(|(_, item)| item.get("sort_order"))
+        .filter_map(|value| {
+            value.as_u64().or_else(|| {
+                value
+                    .as_str()
+                    .and_then(|text| text.trim().parse::<u64>().ok())
+            })
+        })
+        .filter_map(|value| usize::try_from(value).ok())
+        .max()
+        .unwrap_or(active_accounts.len() * 10);
+    let sort_order = max_sort_order + 10;
+    let item = configs
+        .get_mut(index)
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| "未找到要恢复的账号".to_string())?;
+    item.remove("deleted_at");
+    item.insert("sort_order".to_string(), Value::from(sort_order));
+    Ok(sort_order)
+}
+
 pub(crate) fn build_new_desktop_account(
     request: &Map<String, Value>,
     sort_order: usize,
@@ -521,8 +601,179 @@ pub(crate) fn build_new_desktop_account(
     set_optional_value(&mut item, "price_yuan", number_field(request, "price_yuan"));
     set_optional_string(&mut item, "started_at", string_field(request, "started_at"));
     set_optional_string(&mut item, "stopped_at", string_field(request, "stopped_at"));
+    set_optional_string(&mut item, "deleted_at", string_field(request, "deleted_at"));
+    if request.get("auto_switch_disabled").and_then(Value::as_bool) == Some(true) {
+        item.insert("auto_switch_disabled".to_string(), Value::Bool(true));
+    }
     item.insert("sort_order".to_string(), Value::from(sort_order));
     Ok(Value::Object(item))
+}
+
+fn normalized_batch_base_url(value: Option<&Value>) -> String {
+    value
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or_default()
+        .trim_end_matches('/')
+        .to_string()
+}
+
+fn batch_account_type(item: &Value) -> &str {
+    if item
+        .get("type")
+        .and_then(Value::as_str)
+        .is_some_and(|value| value.eq_ignore_ascii_case("apikey"))
+    {
+        "apikey"
+    } else {
+        "token"
+    }
+}
+
+fn matching_batch_account_index(configs: &[Value], candidate: &Value) -> Option<usize> {
+    if batch_account_type(candidate) == "apikey" {
+        let base_url = normalized_batch_base_url(candidate.get("base_url"));
+        let apikey = candidate
+            .get("apikey")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or_default();
+        if base_url.is_empty() || apikey.is_empty() {
+            return None;
+        }
+        return configs.iter().position(|item| {
+            batch_account_type(item) == "apikey"
+                && normalized_batch_base_url(item.get("base_url")) == base_url
+                && item
+                    .get("apikey")
+                    .and_then(Value::as_str)
+                    .is_some_and(|value| value.trim() == apikey)
+        });
+    }
+
+    let account_id = candidate
+        .get("account_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or_default();
+    if account_id.is_empty() {
+        return None;
+    }
+    configs.iter().position(|item| {
+        batch_account_type(item) == "token"
+            && item
+                .get("account_id")
+                .and_then(Value::as_str)
+                .is_some_and(|value| value.trim() == account_id)
+    })
+}
+
+fn batch_token_credentials_differ(existing: &Value, candidate: &Value) -> bool {
+    let differs = |key: &str| {
+        let incoming = candidate
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or_default();
+        !incoming.is_empty()
+            && existing
+                .get(key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or_default()
+                != incoming
+    };
+    differs("access_token") || differs("refresh_token") || differs("client_id")
+}
+
+fn update_batch_token_credentials(existing: &mut Value, candidate: &Value) -> Result<(), String> {
+    let existing = existing
+        .as_object_mut()
+        .ok_or_else(|| "已有账号格式无效".to_string())?;
+    let candidate = candidate
+        .as_object()
+        .ok_or_else(|| "导入账号格式无效".to_string())?;
+
+    for key in [
+        "access_token",
+        "refresh_token",
+        "client_id",
+        "description",
+        "account_id",
+    ] {
+        if let Some(value) = candidate
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            existing.insert(key.to_string(), Value::String(value.to_string()));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn apply_desktop_batch_import(
+    configs: &mut Vec<Value>,
+    requests: &[Value],
+    update_existing: bool,
+) -> Result<DesktopBatchImportSummary, String> {
+    let mut summary = DesktopBatchImportSummary::default();
+
+    for request in requests {
+        let request = value_object(request)?;
+        let candidate = build_new_desktop_account(request, next_sort_order(configs))?;
+        let requested_index = request
+            .get("existing_index")
+            .and_then(Value::as_u64)
+            .and_then(|value| usize::try_from(value).ok())
+            .filter(|index| {
+                if *index >= configs.len()
+                    || batch_account_type(&candidate) != "token"
+                    || batch_account_type(&configs[*index]) != "token"
+                {
+                    return false;
+                }
+                let candidate_account_id = candidate
+                    .get("account_id")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .unwrap_or_default();
+                let existing_account_id = configs[*index]
+                    .get("account_id")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .unwrap_or_default();
+                candidate_account_id.is_empty()
+                    || existing_account_id.is_empty()
+                    || candidate_account_id == existing_account_id
+            });
+        if let Some(index) =
+            requested_index.or_else(|| matching_batch_account_index(configs, &candidate))
+        {
+            let deleted = configs[index]
+                .get("deleted_at")
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.trim().is_empty());
+            if deleted
+                || !update_existing
+                || batch_account_type(&candidate) != "token"
+                || !batch_token_credentials_differ(&configs[index], &candidate)
+            {
+                summary.skipped += 1;
+                continue;
+            }
+
+            update_batch_token_credentials(&mut configs[index], &candidate)?;
+            summary.updated += 1;
+            continue;
+        }
+
+        configs.push(candidate);
+        summary.imported += 1;
+    }
+
+    Ok(summary)
 }
 
 pub(crate) fn desktop_account_reload_body(account: &Value) -> Value {

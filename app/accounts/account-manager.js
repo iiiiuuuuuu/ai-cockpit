@@ -793,13 +793,13 @@ function createAccountManager(options) {
    * 刷新单个账号的额度状态。
    */
   async function checkSingleAccountQuota(config, options = {}) {
-    const { allowSwitch = true } = options;
+    const { allowSwitch = true, allowDeleted = false } = options;
 
     if (!shouldUseQuotaMonitoring(config.type)) {
       return config.runtime;
     }
 
-    if (!config.runtime.enabled) {
+    if (!config.runtime.enabled && !(allowDeleted && config.deleted === true)) {
       config.runtime.available = false;
       config.runtime.reason = config.deleted === true ? 'deleted' : 'missing_credentials';
       return config.runtime;
@@ -841,16 +841,16 @@ function createAccountManager(options) {
   /**
    * 刷新单个账号并按状态变化输出日志。
    */
-  async function refreshSingleConfigWithLogging(config, reason) {
+  async function refreshSingleConfigWithLogging(config, reason, options = {}) {
     const previousAvailability = config.runtime.available;
     const previousReason = config.runtime.reason;
 
-    await checkSingleAccountQuota(config, { allowSwitch: false });
+    await checkSingleAccountQuota(config, { allowSwitch: false, ...options });
 
     const availabilityChanged = previousAvailability !== config.runtime.available || previousReason !== config.runtime.reason;
-    if (availabilityChanged && !config.runtime.available && reason !== 'startup') {
+    if (!config.deleted && availabilityChanged && !config.runtime.available && reason !== 'startup') {
       warn(`账号不可用: ${getAccountLabel(config)} (${config.runtime.reason}${config.runtime.lastError ? `: ${config.runtime.lastError}` : ''})`);
-    } else if (availabilityChanged && config.runtime.available && previousAvailability === false && reason !== 'startup') {
+    } else if (!config.deleted && availabilityChanged && config.runtime.available && previousAvailability === false && reason !== 'startup') {
       warn(`账号恢复可用: ${getAccountLabel(config)} (remaining=${config.runtime.remainingPercent ?? 'unknown'}%)`);
     }
   }
@@ -908,18 +908,18 @@ function createAccountManager(options) {
     }
 
     const config = configs[index];
-    if (config.deleted === true) {
-      config.runtime.available = false;
-      config.runtime.reason = 'deleted';
-      return config;
-    }
+    const deleted = config.deleted === true;
 
     if (shouldUseQuotaMonitoring(config.type)) {
-      await refreshSingleConfigWithLogging(config, reason);
-      ensureActiveConfig(reason);
+      await refreshSingleConfigWithLogging(config, reason, { allowDeleted: deleted });
+      if (!deleted) {
+        ensureActiveConfig(reason);
+      }
     } else if (config.type === 'apikey') {
       await checkApiKeyConfig(config);
-      ensureActiveConfig(reason);
+      if (!deleted) {
+        ensureActiveConfig(reason);
+      }
     }
 
     return config;

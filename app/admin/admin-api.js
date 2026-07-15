@@ -43,6 +43,23 @@ router.get('/configs', (req, res) => {
     }
 });
 
+router.post('/config/reload', async (req, res) => {
+    try {
+        const parsed = readParsedConfigFile(configFile);
+        await persistAndReloadConfig(parsed, 'admin_batch_import', {
+            skipQuotaRefresh: true
+        });
+        res.status(200).json(buildConfigAdminResponse());
+        void refreshConfigAdminResponse().catch(() => {});
+    } catch (err) {
+        const statusCode = err instanceof ConfigEditorError ? 400 : 500;
+        res.status(statusCode).json({
+            error: statusCode === 400 ? '配置重载失败' : '配置更新失败',
+            details: err.message
+        });
+    }
+});
+
 router.post('/configs/refresh', async (req, res) => {
     try {
         res.json(await refreshConfigAdminResponse());
@@ -135,6 +152,10 @@ router.patch('/configs/:index', async (req, res) => {
 
         if (Object.prototype.hasOwnProperty.call(body, 'stopped_at')) {
             nextItem.stopped_at = body.stopped_at;
+        }
+
+        if (Object.prototype.hasOwnProperty.call(body, 'sort_order')) {
+            nextItem.sort_order = body.sort_order;
         }
 
         const hasDeletedAt = Object.prototype.hasOwnProperty.call(body, 'deleted_at');
@@ -321,4 +342,3 @@ router.delete('/configs/:index', async (req, res) => {
 }
 
 module.exports = { createAdminApiRouter };
-

@@ -434,6 +434,45 @@ textarea {
   font-weight: 500;
 }
 
+#accountSortSelect:focus-visible {
+  border-color: rgba(0, 102, 204, 0.52);
+  outline: none;
+  box-shadow: none;
+}
+
+.reorder-open-button {
+  color: var(--muted);
+}
+
+.reorder-open-button svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.55;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.reorder-open-button:hover {
+  color: var(--accent);
+}
+
+.reorder-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.reorder-cancel-button {
+  color: var(--muted);
+  background: var(--panel);
+}
+
+.reorder-save-button {
+  min-width: 56px;
+}
+
 .icon-button,
 .small-button,
 .primary-button,
