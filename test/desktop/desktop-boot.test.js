@@ -1226,6 +1226,7 @@ test('desktop shell keeps startup manual and removes redundant sidebar copy', ()
   assert.match(html, /class="brand-glyph"/);
 
   assert.match(tauriConfig, /"title": "AI Cockpit"/);
+  assert.match(tauriConfig, /"hiddenTitle": true/);
   assert.match(rustSource, /emit_startup_status/);
   assert.doesNotMatch(rustSource, /fn maybe_start_or_emit_status[\s\S]*?run_service_command\(app, "start"\)\?/);
 });
