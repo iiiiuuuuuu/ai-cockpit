@@ -277,21 +277,50 @@
   white-space: nowrap;
 }
 
-.update-button.update-available {
-  border-color: rgba(0, 102, 204, 0.24);
-  color: var(--accent);
-  background: var(--blue-soft);
+.available-update-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  border: 1px solid #cfe3fb;
+  border-radius: 6px;
+  padding: 0 7px;
+  color: #0878e5;
+  background: #edf6ff;
+  box-shadow: none;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.available-update-button[hidden] {
+  display: none;
+}
+
+.available-update-button:hover {
+  border-color: #acd0f7;
+  background: #e5f2ff;
+}
+
+.available-update-button:focus-visible {
+  outline: 2px solid rgba(8, 120, 229, 0.28);
+  outline-offset: 2px;
+}
+
+.available-update-button svg {
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .update-button.loading {
   opacity: 1;
-}
-
-.update-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
 }
 
 .update-spinner {

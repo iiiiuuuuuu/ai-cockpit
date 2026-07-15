@@ -55,6 +55,9 @@ export async function fetchLatestRelease(currentVersion, fetchImpl = globalThis.
       releasePublished: false,
     };
   }
+  if (response.status === 403) {
+    throw new Error('更新检查过于频繁，请稍后再试');
+  }
   if (!response.ok) throw new Error(`检查更新失败（${response.status}）`);
   return parseGithubRelease(await response.json(), currentVersion);
 }

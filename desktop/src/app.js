@@ -1,4 +1,4 @@
-import { waitForMinimumServiceTransition, waitForServiceTransitionPaint } from './actions.js';
+import { waitForMinimumDuration, waitForMinimumServiceTransition, waitForServiceTransitionPaint } from './actions.js';
 import { getAuthJsonDisplayPath, parseTokenJsonObject } from './account-import.js';
 import {
   classifyBatchImportRecords,
@@ -69,13 +69,13 @@ import { fetchLatestRelease, readCachedUpdate, writeCachedUpdate } from './updat
     apikey_only: '仅 API Key',
   };
   const SERVICE_TRANSITION_MIN_MS = 1500;
+  const UPDATE_CHECK_MIN_MS = 600;
 
   const elements = {
     pages: [...document.querySelectorAll('.page')],
     navButtons: [...document.querySelectorAll('[data-page]')],
     serviceStatusLabel: document.querySelector('#serviceStatusLabel'),
     serviceStatusText: document.querySelector('#serviceStatusText'),
-    settingsUpdateBadge: document.querySelector('#settingsUpdateBadge'),
     accountSearchInput: document.querySelector('#accountSearchInput'),
     filterButtons: [...document.querySelectorAll('[data-filter-type]')],
     filterCountElements: [...document.querySelectorAll('[data-filter-count]')],
@@ -173,6 +173,7 @@ import { fetchLatestRelease, readCachedUpdate, writeCachedUpdate } from './updat
     routingPreferenceSelect: document.querySelector('#routingPreferenceSelect'),
     autoSwitchInput: document.querySelector('#autoSwitchInput'),
     currentVersionText: document.querySelector('#currentVersionText'),
+    availableUpdateButton: document.querySelector('#availableUpdateButton'),
     checkUpdateButton: document.querySelector('#checkUpdateButton'),
     tokenModal: document.querySelector('#tokenModal'),
     tokenForm: document.querySelector('#tokenForm'),
@@ -419,15 +420,15 @@ import { fetchLatestRelease, readCachedUpdate, writeCachedUpdate } from './updat
     elements.currentVersionText.textContent = state.appVersion
       ? `当前版本 v${state.appVersion}`
       : '当前版本';
-    elements.settingsUpdateBadge.hidden = !updateAvailable;
+    elements.availableUpdateButton.hidden = !updateAvailable;
+    elements.availableUpdateButton.innerHTML = updateAvailable
+      ? `<span>有新版本 v${escapeHtml(info.latestVersion)}</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3h7v7M13 3 6.5 9.5M11 9.5V13H3V5h3.5"></path></svg>`
+      : '';
     elements.checkUpdateButton.disabled = state.update.checking;
     elements.checkUpdateButton.classList.toggle('loading', state.update.checking);
-    elements.checkUpdateButton.classList.toggle('update-available', updateAvailable);
     elements.checkUpdateButton.innerHTML = state.update.checking
       ? '<span class="update-spinner" aria-hidden="true"></span><span>检查中</span>'
-      : updateAvailable
-        ? `<span class="update-dot" aria-hidden="true"></span><span>下载 v${escapeHtml(info.latestVersion)}</span>`
-        : '检查更新';
+      : '检查更新';
   }
 
   async function loadAppVersion() {
@@ -450,6 +451,8 @@ import { fetchLatestRelease, readCachedUpdate, writeCachedUpdate } from './updat
       }
     }
 
+    const updateCheckStartedAt = Date.now();
+    let feedbackMessage = '';
     state.update.checking = true;
     renderUpdate();
     try {
@@ -457,22 +460,25 @@ import { fetchLatestRelease, readCachedUpdate, writeCachedUpdate } from './updat
       state.update.info = info;
       writeCachedUpdate(info);
       if (!automatic && !info.updateAvailable) {
-        showToast(info.releasePublished === false ? '当前暂无可下载的新版本' : '当前已是最新版本');
+        feedbackMessage = info.releasePublished === false ? '当前暂无可下载的新版本' : '当前已是最新版本';
       }
     } catch (error) {
-      if (!automatic) showToast(error.message || String(error));
+      if (!automatic) feedbackMessage = error.message || String(error);
     } finally {
+      await waitForMinimumDuration(updateCheckStartedAt, UPDATE_CHECK_MIN_MS);
       state.update.checking = false;
       renderUpdate();
     }
+    if (feedbackMessage) showToast(feedbackMessage);
   }
 
   async function handleUpdateButton() {
+    await checkForUpdates();
+  }
+
+  async function handleAvailableUpdateButton() {
     const info = state.update.info;
-    if (!info?.updateAvailable) {
-      await checkForUpdates();
-      return;
-    }
+    if (!info?.updateAvailable) return;
     try {
       await invoke('open_release_page', { url: info.releaseUrl });
     } catch (error) {
@@ -1505,6 +1511,7 @@ import { fetchLatestRelease, readCachedUpdate, writeCachedUpdate } from './updat
     elements.routingPreferenceSelect.addEventListener('change', saveSettings);
     elements.autoSwitchInput.addEventListener('change', saveSettings);
     elements.checkUpdateButton.addEventListener('click', handleUpdateButton);
+    elements.availableUpdateButton.addEventListener('click', handleAvailableUpdateButton);
     elements.openTokenModalButton.addEventListener('click', () => openModal(elements.tokenModal));
     elements.tokenForm.addEventListener('submit', saveAccessToken);
 

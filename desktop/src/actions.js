@@ -12,7 +12,11 @@ export function waitForServiceTransitionPaint() {
   });
 }
 
-export async function waitForMinimumServiceTransition(startedAt, minimumMs) {
+export async function waitForMinimumDuration(startedAt, minimumMs) {
   const remaining = minimumMs - (Date.now() - startedAt);
   if (remaining > 0) await wait(remaining);
+}
+
+export async function waitForMinimumServiceTransition(startedAt, minimumMs) {
+  await waitForMinimumDuration(startedAt, minimumMs);
 }

@@ -22,6 +22,17 @@
   --shadow: 0 20px 54px rgba(0, 0, 0, 0.42);
 }
 
+:root[data-theme="dark"] .available-update-button {
+  border-color: rgba(77, 163, 255, 0.34);
+  color: #79b8ff;
+  background: #19344f;
+}
+
+:root[data-theme="dark"] .available-update-button:hover {
+  border-color: rgba(121, 184, 255, 0.52);
+  background: #214361;
+}
+
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;

@@ -1163,17 +1163,25 @@ test('service control distinguishes primary start from secondary stop actions', 
 test('about section exposes version and non-modal GitHub update checks', () => {
   const html = readDesktopFile('index.html');
   const script = readDesktopFile('src/app.js');
+  const styles = readDesktopStyles();
   const updateScript = readDesktopFile('src/update.js');
   const aboutIndex = html.indexOf('aria-label="关于"');
   const preferencesIndex = html.indexOf('aria-label="使用偏好"');
 
   assert.ok(aboutIndex > preferencesIndex);
   assert.match(html, /id="currentVersionText"/);
+  assert.match(html, /id="availableUpdateButton"[^>]*hidden/);
   assert.match(html, /id="checkUpdateButton"/);
-  assert.match(html, /id="settingsUpdateBadge"/);
+  assert.doesNotMatch(html, /id="settingsUpdateBadge"/);
   assert.match(script, /invoke\('get_app_version'\)/);
   assert.match(script, /checkForUpdates\(\{ automatic: true \}\)/);
   assert.match(script, /invoke\('open_release_page'/);
+  assert.match(script, /availableUpdateButton\.hidden = !updateAvailable/);
+  assert.match(script, /有新版本 v\$\{escapeHtml\(info\.latestVersion\)\}/);
+  assert.doesNotMatch(script, /下载 v\$\{escapeHtml\(info\.latestVersion\)\}/);
+  assert.match(script, /UPDATE_CHECK_MIN_MS = 600/);
+  assert.match(script, /await waitForMinimumDuration\(updateCheckStartedAt, UPDATE_CHECK_MIN_MS\)/);
+  assert.match(styles, /\.available-update-button\s*{[^}]*color:\s*#0878e5;[^}]*background:\s*#edf6ff;[^}]*box-shadow:\s*none;/s);
   assert.doesNotMatch(html, /更新弹窗|立即安装|自动下载/);
   assert.doesNotMatch(script, /openUpdateModal|requestConfirmation\([^)]*更新/s);
   assert.match(updateScript, /https:\/\/api\.github\.com\/repos\/iiiiuuuuuu\/ai-cockpit\/releases\/latest/);
@@ -1211,6 +1219,10 @@ test('update module compares semantic versions and validates project releases', 
     updateAvailable: false,
     releasePublished: false,
   });
+  await assert.rejects(fetchLatestRelease('0.2.0', async () => ({
+    ok: false,
+    status: 403,
+  })), /更新检查过于频繁，请稍后再试/);
 });
 
 test('desktop shell keeps startup manual and removes redundant sidebar copy', () => {
