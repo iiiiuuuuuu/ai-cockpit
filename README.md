@@ -35,43 +35,7 @@ AI Cockpit 是一个桌面端 AI 账号管理与本地请求路由应用。
 - 使用 CC Switch 管理不同 AI 客户端，希望增加一层本地账号调度。
 - 需要把账号从 macOS 迁移到 Windows，或从 Windows 迁移到 macOS。
 
-## 请求如何经过 AI Cockpit
-
-```mermaid
-flowchart LR
-  Codex["ChatGPT / Codex"]
-  ClaudeCode["Claude Code"]
-  CCSwitch["CC Switch<br/>推荐配置入口"]
-
-  subgraph Cockpit["AI Cockpit"]
-    Gateway["本地兼容 API<br/>统一访问令牌"]
-    Router["账号路由<br/>配额检查 · 可用性判断 · 自动切换"]
-    TokenA["Token 账号 A"]
-    TokenB["Token 账号 B"]
-    ApiKey["API Key 账号 C"]
-  end
-
-  Proxy["VPN / 本机代理<br/>可选"]
-  TokenUpstream["ChatGPT / Codex 上游"]
-  ApiUpstream["OpenAI 兼容 API 服务"]
-
-  Codex --> CCSwitch
-  ClaudeCode --> CCSwitch
-  CCSwitch --> Gateway
-  Codex -. "也可以直接连接" .-> Gateway
-  ClaudeCode -. "也可以直接连接" .-> Gateway
-  Gateway --> Router
-  Router --> TokenA
-  Router --> TokenB
-  Router --> ApiKey
-  TokenA --> Proxy
-  TokenB --> Proxy
-  ApiKey --> Proxy
-  Proxy --> TokenUpstream
-  Proxy --> ApiUpstream
-```
-
-CC Switch 是推荐接入方式，但不是必需组件。ChatGPT 应用中的 Codex 功能和 Claude Code 都可以直接连接 AI Cockpit。ChatGPT 普通对话不经过这里配置的 Base URL。
+![一个入口，自动管理多个 AI 账号](docs/img/AI-Cockpit请求链路.png)
 
 ## 核心能力
 
