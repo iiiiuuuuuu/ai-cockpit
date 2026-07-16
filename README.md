@@ -21,19 +21,11 @@
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows-4c566a" alt="macOS and Windows" />
 </p>
 
-## 一个入口，管理多个 AI 账号
+## AI Cockpit 如何工作
 
-AI Cockpit 是一个桌面端 AI 账号管理与本地请求路由应用。
+AI Cockpit 在本机为 ChatGPT/Codex 和 Claude Code 提供统一请求入口。你可以集中管理多个 Token 与 API Key 账号、查看配额，并在当前账号不可用时自动切换。
 
-它在本机提供统一的兼容 API。ChatGPT 应用中的 Codex 功能和 Claude Code 只需要配置一次 AI Cockpit 的 Base URL 和访问令牌；具体使用哪个账号、什么时候检查配额、账号不可用时如何切换、请求是否经过代理，都由 AI Cockpit 在本机处理。推荐使用 CC Switch 管理客户端配置，也可以直接配置客户端。
-
-适合以下场景：
-
-- 同时使用多个 ChatGPT/Codex Token 账号，希望统一查看配额和可用状态。
-- 同时管理 Token 与 OpenAI 兼容 API Key，需要按偏好选择或兜底。
-- 希望客户端只保存一个本地访问令牌，不直接暴露每个上游账号的凭证。
-- 使用 CC Switch 管理不同 AI 客户端，希望增加一层本地账号调度。
-- 需要把账号从 macOS 迁移到 Windows，或从 Windows 迁移到 macOS。
+客户端只需配置一个 Base URL 和访问令牌。推荐使用 CC Switch 管理客户端配置；需要时，上游请求也可以通过本机 VPN 或代理发送。
 
 ![一个入口，自动管理多个 AI 账号](docs/img/AI-Cockpit请求链路.png)
 
