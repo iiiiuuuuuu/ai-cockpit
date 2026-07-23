@@ -138,7 +138,11 @@ Sub2API 仍请求 `/backend-api/wham/usage`，解析结果沿用普通 Token 的
 
 - 不增加第三个账号模式。
 - Token JSON 输入框自动识别普通 Token 或 Agent Identity。
-- 解析成功后，在账号资料区域显示只读的来源类型“Sub2API Agent Identity”。
+- “查看格式示例”增加 `Sub2API Agent Identity` 标签页，展示可直接识别的 JSON 结构；私钥以占位符表示，不展示真实私钥。
+- 解析成功后，普通 Token 继续显示“登录凭证”区域；识别为 Agent Identity 时，隐藏整个“登录凭证”区域，不显示也不校验 `access_token`、`refresh_token` 和 `client_id`。
+- Agent Identity 解析结果显示提示“通过本地身份签名发送请求，无需访问令牌”。账号资料继续可编辑，账号 ID 以 `ChatGPT Account ID` 的名称只读展示。
+- 身份区块命名为“Sub2API 身份信息”，字段均只读并附带简短说明：Agent Runtime ID 用于注册和关联 Task；ChatGPT Account ID 用于发送请求；ChatGPT User ID 是关联的用户标识；Task ID 用于请求签名且缺失或失效时自动创建；Agent Private Key 仅在本机生成签名，默认隐藏且可临时显示。
+- 新建 Agent Identity 账号时，提交按钮显示“添加 Sub2API 账号”；编辑时显示“保存账号”。
 - 批量导入预览的类型列显示“Token · Sub2API”。
 - 无效私钥、缺少必填字段和不支持的 `auth_mode` 在预览阶段逐项提示，不阻塞其他有效账号。
 

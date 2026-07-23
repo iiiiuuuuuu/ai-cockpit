@@ -27,8 +27,15 @@ export function createCommandInvoker({ state, normalizeAccount, maskSecret }) {
       let updated = 0;
       let skipped = 0;
       for (const request of accounts) {
-        const existingIndex = request.mode === 'token' && request.account_id
-          ? snapshot.accounts.findIndex(account => normalizeAccount(account).item?.account_id === request.account_id)
+        const existingIndex = request.mode === 'token' && request.subtype === 'sub2api'
+          ? snapshot.accounts.findIndex(account => {
+              const item = normalizeAccount(account).item || {};
+              return item.subtype === 'sub2api'
+                && item.credentials?.chatgpt_account_id === request.credentials?.chatgpt_account_id
+                && item.credentials?.agent_runtime_id === request.credentials?.agent_runtime_id;
+            })
+          : request.mode === 'token' && request.account_id
+            ? snapshot.accounts.findIndex(account => normalizeAccount(account).item?.account_id === request.account_id)
           : request.mode === 'apikey'
             ? snapshot.accounts.findIndex(account => {
                 const item = normalizeAccount(account).item || {};
@@ -44,7 +51,9 @@ export function createCommandInvoker({ state, normalizeAccount, maskSecret }) {
               ...normalized,
               item: {
                 ...normalized.item,
-                access_token: request.access_token,
+                ...(request.subtype === 'sub2api'
+                  ? { subtype: 'sub2api', credentials: { ...(request.credentials || {}) } }
+                  : { access_token: request.access_token }),
                 refresh_token: request.refresh_token || normalized.item.refresh_token,
                 client_id: request.client_id || normalized.item.client_id,
                 description: request.description || normalized.item.description,

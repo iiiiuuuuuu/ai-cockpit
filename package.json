@@ -19,6 +19,8 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "express": "^4.21.2"
+    "blakejs": "^1.2.1",
+    "express": "^4.21.2",
+    "tweetnacl": "^1.0.3"
   }
 }

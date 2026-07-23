@@ -10,6 +10,8 @@ const {
     classifyResponsesClientVisibleError,
     classifyRetryableResponsesStreamPayload
 } = require('./responses-failover');
+const { buildAuthHeadersForConfig } = require('../config/openai-config');
+const { isSub2ApiTaskInvalidResponse } = require('../accounts/sub2api-agent-identity');
 
 const DEFAULT_RESPONSES_API_PATH = '/backend-api/codex/responses';
 const HOP_BY_HOP_HEADERS = new Set([
@@ -56,8 +58,7 @@ function buildIncomingUrl(req, proxyPath = '') {
 
 function buildUpstreamHeaders(reqHeaders, config, contentLength, isStream, clientVersion) {
     const headers = {
-        authorization: `Bearer ${config.access_token}`,
-        'chatgpt-account-id': config.account_id,
+        ...buildAuthHeadersForConfig(config),
         'content-type': 'application/json',
         accept: isStream ? 'text/event-stream' : 'application/json',
         version: clientVersion
@@ -538,7 +539,9 @@ function createClaudeMessagesHandler({
     clientVersion = '0.0.1',
     upstreamRequestTimeoutMs = 0,
     createUpstreamRequest: createUpstreamRequestImpl = createUpstreamRequest,
-    handleRetryableUpstreamError = null
+    handleRetryableUpstreamError = null,
+    ensureSub2ApiTask = async () => '',
+    recoverSub2ApiTask = async () => ''
 }) {
     return async function handleMessagesRequest(req, res) {
         const incomingUrl = buildIncomingUrl(req);
@@ -637,7 +640,17 @@ function createClaudeMessagesHandler({
             return nextConfig && nextConfig !== activeConfig ? nextConfig : null;
         }
 
-        function startUpstreamAttempt(activeConfig, failoverAttempt = 0) {
+        async function startUpstreamAttempt(activeConfig, failoverAttempt = 0, agentTaskRecoveryAttempt = 0) {
+            try {
+                await ensureSub2ApiTask(activeConfig);
+            } catch (err) {
+                sendJsonError(res, 502, {
+                    error: 'Bad Gateway',
+                    message: err.message,
+                });
+                return;
+            }
+
             const attemptResponsesApiPath = resolveResponsesApiPath(activeConfig);
             const upstreamHeaders = buildUpstreamHeaders(req.headers, activeConfig, upstreamBody.length, true, clientVersion);
 
@@ -726,7 +739,7 @@ function createClaudeMessagesHandler({
                     }
                 });
 
-                response.on('end', () => {
+                response.on('end', async () => {
                     responseFinished = true;
 
                     if (upstreamMeta.statusCode >= 200 && upstreamMeta.statusCode < 300) {
@@ -742,7 +755,7 @@ function createClaudeMessagesHandler({
                             const nextConfig = getRetryConfig(activeConfig, retryClassification, failoverAttempt);
                             if (nextConfig) {
                                 responseFinished = false;
-                                startUpstreamAttempt(nextConfig, failoverAttempt + 1);
+                                void startUpstreamAttempt(nextConfig, failoverAttempt + 1, agentTaskRecoveryAttempt);
                                 return;
                             }
                         }
@@ -769,6 +782,24 @@ function createClaudeMessagesHandler({
 
                     const responseText = Buffer.concat(responseBodyChunks).toString('utf8');
                     const upstreamContentType = upstreamMeta.headers['content-type'] || '';
+                    if (agentTaskRecoveryAttempt < 1 && isSub2ApiTaskInvalidResponse(upstreamMeta.statusCode, responseText)) {
+                        const expectedTaskId = activeConfig.credentials && activeConfig.credentials.task_id || '';
+                        try {
+                            await recoverSub2ApiTask(activeConfig, expectedTaskId);
+                            if (requestClosed) {
+                                return;
+                            }
+                            responseFinished = false;
+                            void startUpstreamAttempt(activeConfig, failoverAttempt, agentTaskRecoveryAttempt + 1);
+                        } catch (err) {
+                            sendJsonError(res, 502, {
+                                error: 'Bad Gateway',
+                                message: err.message,
+                            });
+                        }
+                        return;
+                    }
+
                     const classification = classifyRetryableResponsesHttpError({
                         statusCode: upstreamMeta.statusCode,
                         bodyText: responseText
@@ -776,7 +807,7 @@ function createClaudeMessagesHandler({
                     const nextConfig = classification ? getRetryConfig(activeConfig, classification, failoverAttempt) : null;
                     if (nextConfig) {
                         responseFinished = false;
-                        startUpstreamAttempt(nextConfig, failoverAttempt + 1);
+                        void startUpstreamAttempt(nextConfig, failoverAttempt + 1, agentTaskRecoveryAttempt);
                         return;
                     }
 
@@ -818,7 +849,7 @@ function createClaudeMessagesHandler({
             });
         }
 
-        startUpstreamAttempt(config);
+        void startUpstreamAttempt(config);
 
         const closeUpstream = () => {
             requestClosed = true;

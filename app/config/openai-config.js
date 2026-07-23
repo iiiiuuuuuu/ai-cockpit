@@ -11,6 +11,11 @@ const SUPPORTED_REASONING_EFFORTS = new Set(['none', 'minimal', 'low', 'medium',
 const SUPPORTED_APIKEY_CAPABILITIES = new Set(['gpt', 'claude']);
 const SUPPORTED_ROUTING_PREFERENCES = new Set(['token_first', 'apikey_first', 'token_only', 'apikey_only']);
 const SUPPORTED_CODEX_SPEED_MODES = new Set(['standard', 'fast']);
+const {
+    buildSub2ApiAuthHeaders,
+    isSub2ApiConfig,
+    normalizeSub2ApiCredentials,
+} = require('../accounts/sub2api-agent-identity');
 
 function isPlainObject(value) {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -200,6 +205,18 @@ function parseOpenAiConfigFile(raw) {
             }
         }
 
+        if (configType === 'token' && normalizeString(config.subtype)) {
+            if (!isSub2ApiConfig(config)) {
+                throw new Error(`配置文件 configs[${index}] token subtype 仅支持 sub2api`);
+            }
+
+            try {
+                normalizeSub2ApiCredentials(config.credentials);
+            } catch (err) {
+                throw new Error(`配置文件 configs[${index}] ${err.message}`);
+            }
+        }
+
         if (
             config.auto_switch_disabled !== undefined &&
             typeof config.auto_switch_disabled !== 'boolean'
@@ -366,6 +383,41 @@ function resolveRoutingPreference(parsed) {
 }
 
 function createTokenRuntimeConfig(config, index) {
+    if (isSub2ApiConfig(config)) {
+        const credentials = normalizeSub2ApiCredentials(config.credentials);
+        const deleted = isConfigDeleted(config);
+        const enabled = !deleted && Boolean(
+            credentials.agent_runtime_id &&
+            credentials.agent_private_key &&
+            credentials.chatgpt_account_id &&
+            credentials.chatgpt_user_id
+        );
+        const runtime = createDefaultTokenRuntime(enabled);
+        if (deleted) {
+            runtime.available = false;
+            runtime.reason = 'deleted';
+        }
+
+        return {
+            type: 'token',
+            subtype: 'sub2api',
+            index,
+            deleted,
+            deletedAt: deleted ? config.deleted_at : '',
+            autoSwitchDisabled: config.auto_switch_disabled === true,
+            baseUrl: CHATGPT_BASE_URL,
+            apiBasePath: CODEX_API_BASE_PATH,
+            access_token: '',
+            refresh_token: '',
+            client_id: '',
+            account_id: credentials.chatgpt_account_id,
+            credentials,
+            alias: config.alias || '',
+            description: config.description || credentials.email || `Sub2API 配置 #${index + 1}`,
+            runtime,
+        };
+    }
+
     const deleted = isConfigDeleted(config);
     const enabled = !deleted && Boolean(config.access_token && config.account_id);
     const runtime = createDefaultTokenRuntime(enabled);
@@ -444,11 +496,15 @@ function createRuntimeConfigs(parsed) {
     });
 }
 
-function buildAuthHeadersForConfig(config) {
+function buildAuthHeadersForConfig(config, options = {}) {
     if (config.type === 'apikey') {
         return {
             authorization: `Bearer ${config.apiKey}`
         };
+    }
+
+    if (isSub2ApiConfig(config)) {
+        return buildSub2ApiAuthHeaders(config, options);
     }
 
     return {

@@ -261,7 +261,7 @@
               </div>
             </section>
 
-            <section class="account-form-section">
+            <section class="account-form-section" data-standard-token-only>
               <div class="account-section-head"><strong class="account-section-title">登录凭证</strong><span>用于请求和自动续期</span></div>
               <div class="form-grid two-columns">
                 <label class="field">
@@ -294,7 +294,7 @@
               </div>
             </section>
 
-            <section class="account-form-section">
+            <section class="account-form-section" data-standard-token-only>
               <div class="account-section-head"><strong class="account-section-title">账号标识</strong><span>通常由 JSON 自动填写</span></div>
               <div class="form-grid two-columns">
                 <label class="field"><span class="field-label-line"><span class="field-name">账号 ID</span><span class="technical-name">account_id</span><span class="optional-pill">可选</span></span><input id="tokenAccountIdInput" type="text" autocomplete="off" placeholder="解析后自动填充" /><small>组织或工作区账号标识。</small></label>
@@ -302,10 +302,21 @@
               </div>
             </section>
 
+            <section class="account-form-section sub2api-details" data-sub2api-only hidden>
+              <div class="account-section-head"><strong class="account-section-title">Sub2API 身份信息</strong><span>通过本地身份签名请求，无需访问令牌</span></div>
+              <div class="form-grid two-columns">
+                <label class="field"><span class="field-label-line"><span class="field-name">ChatGPT Account ID</span><span class="optional-pill">只读</span></span><input id="tokenSub2ApiAccountIdInput" data-sub2api-account-id type="text" readonly /><small>发送请求的 ChatGPT 工作区账号标识。</small></label>
+                <label class="field"><span class="field-label-line"><span class="field-name">ChatGPT User ID</span><span class="optional-pill">只读</span></span><input id="tokenSub2ApiUserIdInput" type="text" readonly /><small>关联到 Agent Identity 的用户标识。</small></label>
+                <label class="field"><span class="field-label-line"><span class="field-name">Agent Runtime ID</span><span class="optional-pill">只读</span></span><input id="tokenSub2ApiRuntimeIdInput" type="text" readonly /><small>Agent 实例标识，用于注册和关联 Task。</small></label>
+                <label class="field"><span class="field-label-line"><span class="field-name">Task ID</span><span class="optional-pill">自动维护</span></span><input id="tokenSub2ApiTaskIdInput" type="text" readonly placeholder="首次请求时生成" /><small>用于请求签名，缺失或失效时由服务自动创建。</small></label>
+                <label class="field span-2"><span class="field-label-line"><span class="field-name">Agent Private Key</span><span class="optional-pill">敏感</span></span><span class="secret-input"><input id="tokenSub2ApiPrivateKeyInput" type="password" readonly /><button class="secret-toggle" type="button" data-secret-toggle="tokenSub2ApiPrivateKeyInput" title="显示明文" aria-label="显示 Agent Private Key 明文"><svg class="secret-eye-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 10s2.8-4.5 7.5-4.5 7.5 4.5 7.5 4.5-2.8 4.5-7.5 4.5S2.5 10 2.5 10Z"></path><circle cx="10" cy="10" r="2.2"></circle></svg></button></span><small>仅在本机生成签名，不会作为访问令牌发送。</small></label>
+              </div>
+            </section>
+
             <div class="token-format-overlay" id="tokenFormatDialog" role="dialog" aria-modal="true" aria-labelledby="tokenFormatTitle" hidden>
               <section class="token-format-card">
                 <div class="token-format-head"><strong id="tokenFormatTitle">Token JSON 格式示例</strong><button class="icon-button" type="button" id="closeTokenFormatButton" aria-label="关闭格式示例">×</button></div>
-                <div class="token-format-tabs"><button class="token-format-tab active" type="button" data-token-format="session">ChatGPT AuthSession</button><button class="token-format-tab" type="button" data-token-format="app">ChatGPT 应用 auth.json</button></div>
+                <div class="token-format-tabs"><button class="token-format-tab active" type="button" data-token-format="session">ChatGPT AuthSession</button><button class="token-format-tab" type="button" data-token-format="app">ChatGPT 应用 auth.json</button><button class="token-format-tab" type="button" data-token-format="sub2api">Sub2API</button></div>
                 <pre class="token-format-example active" data-token-format-example="session">{
   "accessToken": "access-token",
   "refreshToken": "refresh-token",
@@ -318,6 +329,18 @@
     "access_token": "access-token",
     "refresh_token": "refresh-token",
     "account_id": "account-id"
+  }
+}</pre>
+                <pre class="token-format-example" data-token-format-example="sub2api">{
+  "platform": "openai",
+  "type": "oauth",
+  "credentials": {
+    "auth_mode": "agentIdentity",
+    "agent_runtime_id": "agent-runtime-id",
+    "agent_private_key": "base64-pkcs8-ed25519-private-key",
+    "chatgpt_account_id": "account-id",
+    "chatgpt_user_id": "user-id",
+    "task_id": "task-id"
   }
 }</pre>
               </section>

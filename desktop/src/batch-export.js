@@ -33,12 +33,12 @@ function accountRow(account, selected) {
   const title = resolveAccountTitleParts(account);
   const apiKey = isApiKeyAccount(account);
   const deleted = Boolean(isDeletedAccount(account));
-  const subtitle = title.subtitle || (apiKey ? account.item?.base_url : account.item?.account_id) || '';
+  const subtitle = title.subtitle || (apiKey ? account.item?.base_url : account.item?.account_id || account.item?.credentials?.chatgpt_account_id) || '';
   return `
     <tr>
       <td class="batch-export-check-cell"><input type="checkbox" data-batch-export-index="${account.index}" aria-label="选择 ${escapeHtml(title.title)}"${selected ? ' checked' : ''}></td>
       <td class="batch-export-account-cell"><strong title="${escapeHtml(title.title)}">${escapeHtml(title.title)}</strong><small title="${escapeHtml(subtitle)}">${escapeHtml(subtitle)}</small></td>
-      <td><span class="batch-export-type">${apiKey ? 'API KEY' : 'TOKEN'}</span></td>
+      <td><span class="batch-export-type">${apiKey ? 'API KEY' : account.item?.subtype === 'sub2api' ? 'TOKEN · SUB2API' : 'TOKEN'}</span></td>
       <td><span class="batch-export-status${deleted ? ' deleted' : ''}">${deleted ? '已删除' : '正常'}</span></td>
     </tr>`;
 }

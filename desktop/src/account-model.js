@@ -15,6 +15,11 @@ export function isApiKeyAccount(account) {
   return normalizeAccount(account).item?.type === 'apikey';
 }
 
+export function isSub2ApiAccount(account) {
+  const item = normalizeAccount(account).item || {};
+  return !isApiKeyAccount(account) && String(item.subtype || '').trim().toLowerCase() === 'sub2api';
+}
+
 export function isDeletedAccount(account) {
   const item = normalizeAccount(account).item || {};
   return typeof item.deleted_at === 'string' && item.deleted_at.trim();
@@ -31,7 +36,7 @@ export function getDisplayName(account) {
 export function resolveTokenTitleParts(item) {
   const alias = text(item.alias, '');
   const email = text(item.description, '');
-  const accountId = text(item.account_id, '');
+  const accountId = text(item.account_id || item.credentials?.chatgpt_account_id, '');
   if (alias) return { title: alias, subtitle: email };
   if (email) return { title: email, subtitle: '' };
   if (accountId) return { title: accountId, subtitle: '' };
@@ -58,6 +63,9 @@ export function getSearchText(account) {
     item.base_url,
     item.apikey,
     item.client_id,
+    item.subtype,
+    item.credentials?.chatgpt_account_id,
+    item.credentials?.agent_runtime_id,
   ].filter(Boolean).join(' ').toLowerCase();
 }
 

@@ -16,8 +16,61 @@ function firstValue(...values) {
   return values.find(value => value !== undefined && value !== null && value !== '') || '';
 }
 
+function isObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isSub2ApiExportItem(source) {
+  if (!isObject(source)) return false;
+  if (String(source.subtype || '').trim().toLowerCase() === 'sub2api') {
+    return isObject(source.credentials);
+  }
+  return String(source.platform || '').trim().toLowerCase() === 'openai'
+    && String(source.type || '').trim().toLowerCase() === 'oauth'
+    && String(source.credentials?.auth_mode || '').trim().toLowerCase() === 'agentidentity';
+}
+
+function normalizeSub2ApiCredentials(source) {
+  const credentials = isObject(source.credentials) ? source.credentials : source;
+  const extra = isObject(source.extra) ? source.extra : {};
+  const normalized = {
+    auth_mode: 'agentIdentity',
+    agent_runtime_id: firstValue(credentials.agent_runtime_id),
+    agent_private_key: firstValue(credentials.agent_private_key),
+    task_id: firstValue(credentials.task_id),
+    chatgpt_account_id: firstValue(
+      credentials.chatgpt_account_id,
+      credentials.account_id,
+      extra.chatgpt_account_id,
+      extra.account_id,
+    ),
+    chatgpt_user_id: firstValue(credentials.chatgpt_user_id),
+    chatgpt_account_is_fedramp: credentials.chatgpt_account_is_fedramp === true,
+    email: firstValue(credentials.email, extra.email),
+    plan_type: firstValue(credentials.plan_type),
+  };
+  for (const field of ['task_id', 'email', 'plan_type']) {
+    if (!normalized[field]) delete normalized[field];
+  }
+  return normalized;
+}
+
 export function parseTokenJsonObject(parsed, options = {}) {
   const source = parsed && typeof parsed === 'object' ? parsed : {};
+
+  if (isSub2ApiExportItem(source)) {
+    const credentials = normalizeSub2ApiCredentials(source);
+    return {
+      subtype: 'sub2api',
+      description: firstValue(source.description, credentials.email, source.name, credentials.chatgpt_account_id),
+      alias: firstValue(source.alias),
+      price_yuan: firstValue(source.price_yuan, source.priceYuan),
+      started_at: firstValue(source.started_at, source.startedAt, options.startedAt),
+      stopped_at: firstValue(source.stopped_at, source.stoppedAt),
+      credentials,
+    };
+  }
+
   const tokens = source.tokens && typeof source.tokens === 'object' ? source.tokens : {};
   const user = source.user && typeof source.user === 'object' ? source.user : {};
   const account = source.account && typeof source.account === 'object' ? source.account : {};

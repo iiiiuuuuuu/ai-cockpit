@@ -7,6 +7,11 @@ const {
     normalizeRoutingPreference,
     normalizeCodexSpeedMode,
 } = require('./openai-config');
+const {
+    isSub2ApiConfig,
+    isSub2ApiExportItem,
+    normalizeSub2ApiCredentials,
+} = require('../accounts/sub2api-agent-identity');
 
 class ConfigEditorError extends Error {}
 
@@ -191,7 +196,7 @@ function getEditableFields(type) {
     }
 
     if (type === 'token') {
-        return ['type', 'access_token', 'refresh_token', 'account_id', 'description'];
+        return ['type', 'subtype', 'access_token', 'refresh_token', 'account_id', 'description'];
     }
 
     throw new ConfigEditorError(`不支持的配置类型: ${type}`);
@@ -204,9 +209,16 @@ function validateParsedConfig(parsed) {
 }
 
 function cloneParsedConfig(parsed) {
+    const cloneConfigItem = item => ({
+        ...item,
+        ...(item && typeof item.credentials === 'object' && !Array.isArray(item.credentials)
+            ? { credentials: { ...item.credentials } }
+            : {}),
+    });
+
     return {
         ...parsed,
-        configs: parsed.configs.map(item => ({ ...item })),
+        configs: parsed.configs.map(cloneConfigItem),
     };
 }
 
@@ -242,6 +254,10 @@ function normalizeConfigItem(item, existingItem = {}) {
             continue;
         }
 
+        if (field === 'subtype' && !Object.prototype.hasOwnProperty.call(item, field)) {
+            continue;
+        }
+
         nextItem[field] = normalizeString(item[field]);
     }
 
@@ -251,6 +267,24 @@ function normalizeConfigItem(item, existingItem = {}) {
 
     if (type === 'token' && !nextItem.refresh_token) {
         delete nextItem.refresh_token;
+    }
+
+    if (type === 'token' && isSub2ApiConfig(nextItem)) {
+        try {
+            nextItem.type = 'token';
+            nextItem.subtype = 'sub2api';
+            nextItem.credentials = normalizeSub2ApiCredentials(nextItem.credentials);
+        } catch (err) {
+            throw new ConfigEditorError(err.message);
+        }
+        delete nextItem.access_token;
+        delete nextItem.refresh_token;
+        delete nextItem.client_id;
+        delete nextItem.account_id;
+    } else if (type === 'token' && nextItem.subtype) {
+        throw new ConfigEditorError('token subtype 仅支持 sub2api');
+    } else if (type === 'token') {
+        delete nextItem.subtype;
     }
 
     if (type === 'token' && Object.prototype.hasOwnProperty.call(item, 'alias')) {
@@ -347,6 +381,42 @@ function buildImportedConfigItem(typeOrItem, maybeItem) {
             ...item,
             type
         });
+    }
+
+    if (isSub2ApiExportItem(item)) {
+        const credentials = item.credentials && typeof item.credentials === 'object' && !Array.isArray(item.credentials)
+            ? item.credentials
+            : {};
+        const extra = item.extra && typeof item.extra === 'object' && !Array.isArray(item.extra)
+            ? item.extra
+            : {};
+        let normalizedCredentials;
+        try {
+            normalizedCredentials = normalizeSub2ApiCredentials({
+                ...credentials,
+                email: credentials.email || extra.email,
+                chatgpt_account_id: credentials.chatgpt_account_id || credentials.account_id ||
+                    extra.chatgpt_account_id || extra.account_id,
+            });
+        } catch (err) {
+            throw new ConfigEditorError(err.message);
+        }
+
+        const imported = {
+            type: 'token',
+            subtype: 'sub2api',
+            description: normalizeString(item.description) || normalizedCredentials.email ||
+                normalizeString(item.name) || normalizedCredentials.chatgpt_account_id,
+            credentials: normalizedCredentials,
+        };
+
+        for (const field of ['concurrency', 'priority', 'rate_multiplier', 'auto_pause_on_expired']) {
+            if (Object.prototype.hasOwnProperty.call(item, field)) {
+                imported[field] = item[field];
+            }
+        }
+
+        return imported;
     }
 
     const explicitAccessToken = normalizeString(item.access_token);

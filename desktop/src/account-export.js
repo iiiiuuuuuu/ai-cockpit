@@ -50,7 +50,7 @@ export function filterAccountExportRows(accounts, options = {}) {
     .filter(account => {
       if (!query) return true;
       const item = accountItem(account);
-      return [item.alias, item.description, item.account_id, item.base_url]
+      return [item.alias, item.description, item.account_id, item.credentials?.chatgpt_account_id, item.credentials?.agent_runtime_id, item.base_url]
         .filter(value => value !== null && value !== undefined)
         .some(value => String(value).toLowerCase().includes(query));
     })

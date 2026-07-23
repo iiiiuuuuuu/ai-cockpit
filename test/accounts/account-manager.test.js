@@ -87,6 +87,8 @@ function createManager(configs, overrides = {}) {
     shouldUseQuotaMonitoring: type => type === 'token',
     refreshTokenFn: overrides.refreshTokenFn,
     persistTokenRefreshFn: overrides.persistTokenRefreshFn,
+    ensureSub2ApiTaskFn: overrides.ensureSub2ApiTaskFn,
+    recoverSub2ApiTaskFn: overrides.recoverSub2ApiTaskFn,
     log: (...args) => logs.push(args.join(' ')),
     warn: (...args) => warnings.push(args.join(' ')),
     now: overrides.now || (() => 1713337200000),
@@ -300,6 +302,62 @@ test('account manager does not expose internal helper methods', () => {
   assert.equal(manager.evaluateQuotaPayload, undefined);
   assert.equal(manager.applyQuotaState, undefined);
   assert.equal(manager.getAccountLabel, undefined);
+});
+
+test('Sub2API quota checks ensure and recover the agent task without token refresh', async () => {
+  const config = createConfig(0, { available: true, reason: 'unchecked' }, {
+    subtype: 'sub2api',
+    account_id: 'sub2api-account',
+    credentials: {
+      auth_mode: 'agentIdentity',
+      agent_runtime_id: 'runtime-1',
+      agent_private_key: 'private-key',
+      task_id: 'task-old',
+      chatgpt_account_id: 'sub2api-account',
+      chatgpt_user_id: 'user-1',
+    },
+  });
+  const calls = [];
+  let ensureCalls = 0;
+  let recoverCalls = 0;
+  const { manager } = createManager([config], {
+    requestBufferedFn: async request => {
+      calls.push(request);
+      if (calls.length === 1) {
+        return { statusCode: 401, bodyText: '{"code":"invalid_task_id"}' };
+      }
+      return {
+        statusCode: 200,
+        bodyText: JSON.stringify({
+          allowed: true,
+          rate_limit: { primary_window: { used_percent: 14, reset_after_seconds: 10 } },
+          secondary_window: { used_percent: 8, reset_after_seconds: 20 },
+        }),
+      };
+    },
+    ensureSub2ApiTaskFn: async () => {
+      ensureCalls += 1;
+      return config.credentials.task_id;
+    },
+    recoverSub2ApiTaskFn: async (target, expectedTaskId) => {
+      recoverCalls += 1;
+      assert.equal(target, config);
+      assert.equal(expectedTaskId, 'task-old');
+      config.credentials.task_id = 'task-new';
+      return 'task-new';
+    },
+    refreshTokenFn: async () => {
+      throw new Error('Sub2API must not use token refresh');
+    },
+  });
+
+  await manager.refreshConfig(0, 'manual_refresh');
+
+  assert.equal(ensureCalls, 2);
+  assert.equal(recoverCalls, 1);
+  assert.equal(calls.length, 2);
+  assert.equal(config.runtime.primaryRemainingPercent, 86);
+  assert.equal(config.credentials.task_id, 'task-new');
 });
 
 test('getAccountStatus returns the view model used by callers', () => {

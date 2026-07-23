@@ -73,6 +73,9 @@ function normalizeApiKeyInput(source, startedAt) {
 
 function normalizeTokenInput(source, startedAt) {
   const parsed = parseTokenJsonObject(source, { startedAt });
+  if (parsed.subtype === 'sub2api') {
+    return { mode: 'token', ...parsed, ...normalizeLifecycleFields(source) };
+  }
   if (!parsed.access_token) throw new Error('缺少 access_token');
   return { mode: 'token', ...parsed, ...normalizeLifecycleFields(source) };
 }
@@ -164,12 +167,14 @@ function normalizeExistingAccount(account) {
         }
       : {
           mode: 'token',
+          subtype: stringValue(item.subtype),
           description: stringValue(item.description),
           alias: stringValue(item.alias),
           account_id: stringValue(item.account_id, item.accountId),
           client_id: stringValue(item.client_id, item.clientId),
           access_token: stringValue(item.access_token, item.accessToken),
           refresh_token: stringValue(item.refresh_token, item.refreshToken),
+          credentials: isObject(item.credentials) ? item.credentials : {},
         },
   };
 }
@@ -183,6 +188,13 @@ function strongIdentityKeys(account, includeSubjectFallback = false) {
   }
 
   const keys = [];
+  if (account.subtype === 'sub2api') {
+    const accountId = stringValue(account.credentials?.chatgpt_account_id, account.account_id);
+    const runtimeId = stringValue(account.credentials?.agent_runtime_id);
+    if (accountId && runtimeId) keys.push(`sub2api:${accountId}:${runtimeId}`);
+    return keys;
+  }
+
   const accountId = stringValue(account.account_id);
   const subject = tokenSubject(account);
   if (accountId) keys.push(`token:account:${accountId}`);
@@ -192,6 +204,9 @@ function strongIdentityKeys(account, includeSubjectFallback = false) {
 
 function credentialsDiffer(incoming, existing) {
   if (incoming.mode === 'apikey') return false;
+  if (incoming.subtype === 'sub2api' || existing.subtype === 'sub2api') {
+    return JSON.stringify(incoming.credentials || {}) !== JSON.stringify(existing.credentials || {});
+  }
   if (stringValue(incoming.access_token) !== stringValue(existing.access_token)) return true;
   if (incoming.refresh_token && stringValue(incoming.refresh_token) !== stringValue(existing.refresh_token)) return true;
   if (incoming.client_id && stringValue(incoming.client_id) !== stringValue(existing.client_id)) return true;

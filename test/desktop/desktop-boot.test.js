@@ -679,6 +679,7 @@ test('account sort focus uses its own border without an outer ring', () => {
 
 test('account modals distinguish token api-key and edit flows', () => {
   const html = readDesktopFile('index.html');
+  const script = readDesktopFile('src/app.js');
 
   assert.match(html, /id="accountModal"/);
   assert.match(html, /id="confirmModal"/);
@@ -711,6 +712,16 @@ test('account modals distinguish token api-key and edit flows', () => {
   assert.match(html, /class="dialog-button dialog-button-primary" type="submit" id="saveAccountButton"/);
   assert.match(html, /解析后自动填充/);
   assert.match(html, /用于向 ChatGPT \/ Codex 发起请求。/);
+  assert.match(html, /data-standard-token-only/);
+  assert.match(html, /data-sub2api-account-id/);
+  assert.match(html, /data-token-format="sub2api"/);
+  assert.match(html, /data-token-format-example="sub2api"/);
+  assert.match(html, /无需访问令牌/);
+  assert.match(html, /缺失或失效时由服务自动创建/);
+  assert.match(html, /仅在本机生成签名/);
+  assert.match(script, /standardTokenFields/);
+  assert.match(script, /sub2ApiAccountIdInput/);
+  assert.match(script, /添加 Sub2API 账号/);
   assert.doesNotMatch(html, /class="field required"/);
 
   assert.doesNotMatch(html, /支持能力/);
@@ -761,6 +772,32 @@ test('account import accepts ChatGPT AuthSession and nested ChatGPT app auth jso
   assert.equal(accountImport.getAuthJsonDisplayPath('Mozilla/5.0 (Windows NT 10.0)'), '%USERPROFILE%\\.codex\\auth.json');
 });
 
+test('account import accepts Sub2API Agent Identity JSON without access_token', async () => {
+  const importUrl = pathToFileURL(path.join(desktopDir, 'src', 'account-import.js')).href;
+  const accountImport = await import(importUrl);
+  const parsed = accountImport.parseTokenJsonObject({
+    name: 'sub2api-account',
+    platform: 'openai',
+    type: 'oauth',
+    credentials: {
+      auth_mode: 'agentIdentity',
+      agent_runtime_id: 'runtime-desktop-1',
+      agent_private_key: 'private-key',
+      task_id: 'task-desktop-1',
+      chatgpt_account_id: 'account-desktop-1',
+      chatgpt_user_id: 'user-desktop-1',
+      email: 'sub2api@example.com',
+      plan_type: 'team',
+    },
+  });
+
+  assert.equal(parsed.subtype, 'sub2api');
+  assert.equal(parsed.description, 'sub2api@example.com');
+  assert.equal(parsed.credentials.agent_runtime_id, 'runtime-desktop-1');
+  assert.equal(parsed.credentials.chatgpt_account_id, 'account-desktop-1');
+  assert.equal(parsed.access_token, undefined);
+});
+
 test('batch account import expands files and account collections into normalized records', async () => {
   const importUrl = pathToFileURL(path.join(desktopDir, 'src', 'batch-import.js')).href;
   const batchImport = await import(importUrl);
@@ -808,6 +845,31 @@ test('batch account import expands files and account collections into normalized
   assert.equal(records[1].account.apikey, 'sk-example');
   assert.equal(records[2].account, null);
   assert.match(records[2].error, /access_token/);
+});
+
+test('batch account import recognizes Sub2API as a Token subtype', async () => {
+  const importUrl = pathToFileURL(path.join(desktopDir, 'src', 'batch-import.js')).href;
+  const batchImport = await import(importUrl);
+  const records = batchImport.parseBatchAccountSources([{
+    name: 'sub2api.json',
+    content: JSON.stringify({
+      platform: 'openai',
+      type: 'oauth',
+      credentials: {
+        auth_mode: 'agentIdentity',
+        agent_runtime_id: 'runtime-batch-1',
+        agent_private_key: 'private-key',
+        chatgpt_account_id: 'account-batch-1',
+        chatgpt_user_id: 'user-batch-1',
+        email: 'batch@example.com',
+      },
+    }),
+  }]);
+
+  assert.equal(records[0].error, '');
+  assert.equal(records[0].account.mode, 'token');
+  assert.equal(records[0].account.subtype, 'sub2api');
+  assert.equal(records[0].account.credentials.agent_runtime_id, 'runtime-batch-1');
 });
 
 test('batch import preserves exported account lifecycle fields and order', async () => {

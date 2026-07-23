@@ -12,8 +12,9 @@ use std::path::Path;
 const MAX_ACCOUNT_EXPORT_INDEXES: usize = 10_000;
 const MAX_EXPORT_FILENAME_UTF16_UNITS: usize = 120;
 
-const ACCOUNT_EXPORT_FIELDS: [&str; 16] = [
+const ACCOUNT_EXPORT_FIELDS: [&str; 18] = [
     "type",
+    "subtype",
     "alias",
     "description",
     "account_id",
@@ -29,6 +30,7 @@ const ACCOUNT_EXPORT_FIELDS: [&str; 16] = [
     "sort_order",
     "deleted_at",
     "auto_switch_disabled",
+    "credentials",
 ];
 
 #[derive(Debug, Serialize)]

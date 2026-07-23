@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -55,6 +56,19 @@ function createFakeJwt(payload) {
     Buffer.from(JSON.stringify(payload)).toString('base64url'),
     'signature',
   ].join('.');
+}
+
+function createSub2ApiCredentials(overrides = {}) {
+  const { privateKey } = crypto.generateKeyPairSync('ed25519');
+  return {
+    auth_mode: 'agentIdentity',
+    agent_runtime_id: 'runtime-editor-1',
+    agent_private_key: privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64'),
+    chatgpt_account_id: 'account-editor-1',
+    chatgpt_user_id: 'user-editor-1',
+    email: 'editor@example.com',
+    ...overrides,
+  };
 }
 
 test('addConfigItem appends a token config and preserves top-level settings', () => {
@@ -180,6 +194,47 @@ test('buildImportedConfigItem supports direct credential JSON with email and JWT
   assert.equal(imported.account_id, 'account-from-direct-json');
   assert.equal(imported.refresh_token, 'refresh-token-from-direct-json');
   assert.equal(imported.client_id, 'app-from-access-token');
+});
+
+test('buildImportedConfigItem converts Sub2API Agent Identity exports to token subtype configs', () => {
+  const imported = buildImportedConfigItem('token', {
+    name: 'sub2api-export',
+    platform: 'openai',
+    type: 'oauth',
+    credentials: createSub2ApiCredentials({ task_id: 'task-editor-1', plan_type: 'team' }),
+    concurrency: 10,
+  });
+
+  assert.equal(imported.type, 'token');
+  assert.equal(imported.subtype, 'sub2api');
+  assert.equal(imported.description, 'editor@example.com');
+  assert.equal(imported.credentials.auth_mode, 'agentIdentity');
+  assert.equal(imported.credentials.task_id, 'task-editor-1');
+  assert.equal(imported.concurrency, 10);
+});
+
+test('buildImportedConfigItem accepts Sub2API Agent Identity without task_id', () => {
+  const imported = buildImportedConfigItem('token', {
+    platform: 'openai',
+    type: 'oauth',
+    credentials: createSub2ApiCredentials(),
+  });
+
+  assert.equal(imported.subtype, 'sub2api');
+  assert.equal(imported.credentials.task_id, undefined);
+});
+
+test('buildImportedConfigItem rejects invalid Sub2API private keys without exposing them', () => {
+  assert.throws(() => buildImportedConfigItem('token', {
+    platform: 'openai',
+    type: 'oauth',
+    credentials: createSub2ApiCredentials({ agent_private_key: 'not-a-private-key' }),
+  }), err => {
+    assert.equal(err instanceof ConfigEditorError, true);
+    assert.match(err.message, /agent_private_key/);
+    assert.doesNotMatch(err.message, /not-a-private-key/);
+    return true;
+  });
 });
 
 test('buildImportedConfigItem accepts camelCase and nested token refresh fields', () => {

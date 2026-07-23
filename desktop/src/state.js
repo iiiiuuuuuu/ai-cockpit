@@ -36,6 +36,8 @@ export function createUiState() {
     reorderPreviousView: null,
     reorderSaving: false,
     accountModalMode: 'token',
+    accountModalSubtype: '',
+    accountModalCredentials: null,
     editingAccountIndex: null,
     batchImport: {
       stage: 'files',

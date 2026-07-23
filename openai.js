@@ -8,7 +8,7 @@ const { inspect } = require('node:util');
 const zlib = require('zlib');
 const express = require('express');
 const { createAdminApiRouter } = require('./app/admin/admin-api');
-const { createUpstreamRequest, consumeResponseBody } = require('./app/http/upstream-request');
+const { createUpstreamRequest, requestBuffered, consumeResponseBody } = require('./app/http/upstream-request');
 const { applyForcedProxyHeaders } = require('./app/http/proxy-header-overrides');
 const { normalizeResponsesRequestBody, isResponsesPath } = require('./app/protocols/responses-defaults');
 const { createClaudeMessagesHandler } = require('./app/protocols/claude-messages-handler');
@@ -47,6 +47,11 @@ const {
     writeParsedConfigFile
 } = require('./app/config/config-editor');
 const { reconcileRuntimeConfigs } = require('./app/config/runtime-config-reconciler');
+const {
+    createSub2ApiAgentIdentityManager,
+    isSub2ApiConfig,
+    isSub2ApiTaskInvalidResponse,
+} = require('./app/accounts/sub2api-agent-identity');
 const {
     generateRandomSecret,
     getConfiguredApiKeys,
@@ -106,6 +111,10 @@ function parseTimeoutMs(name, fallbackValue) {
 
 const UPSTREAM_REQUEST_TIMEOUT_MS = parseTimeoutMs('UPSTREAM_REQUEST_TIMEOUT_MS', 5 * 60 * 1000);
 const QUOTA_CHECK_TIMEOUT_MS = parseTimeoutMs('QUOTA_CHECK_TIMEOUT_MS', 10 * 1000);
+const sub2ApiAgentIdentityManager = createSub2ApiAgentIdentityManager({
+    requestBufferedFn: requestBuffered,
+    persistTaskFn: persistSub2ApiTaskForConfig,
+});
 
 function hasCliFlag(flag) {
     return process.argv.includes(flag);
@@ -667,6 +676,8 @@ function createClaudeMessagesRequestHandler() {
         reasoningEffort: process.env.CLAUDE_PROXY_REASONING_EFFORT || claudeCodeConfig.reasoningEffort,
         clientVersion: process.env.CODEX_CLIENT_VERSION || '0.0.1',
         upstreamRequestTimeoutMs: UPSTREAM_REQUEST_TIMEOUT_MS,
+        ensureSub2ApiTask: config => sub2ApiAgentIdentityManager.ensureTask(config),
+        recoverSub2ApiTask: (config, expectedTaskId) => sub2ApiAgentIdentityManager.recoverTask(config, expectedTaskId),
         handleRetryableUpstreamError: (config, classification) => {
             warn(`claude responses 自动切号: ${formatAccountLabel(config)} (${classification.retrySource}:${classification.retryKey})`);
             return accountManager.markConfigUnavailable(config, classification.reason, {
@@ -706,6 +717,8 @@ function applyLoadedConfig(loadedConfig) {
             timeoutMs: QUOTA_CHECK_TIMEOUT_MS
         }),
         persistTokenRefreshFn: persistTokenRefreshForConfig,
+        ensureSub2ApiTaskFn: config => sub2ApiAgentIdentityManager.ensureTask(config),
+        recoverSub2ApiTaskFn: (config, expectedTaskId) => sub2ApiAgentIdentityManager.recoverTask(config, expectedTaskId),
         log,
         warn,
         now: getCurrentTimestamp
@@ -792,6 +805,39 @@ function persistTokenRefreshForConfig(update) {
     }
 
     return savedItem;
+}
+
+function persistSub2ApiTaskForConfig(update) {
+    const config = update && update.config;
+    const taskId = typeof update?.taskId === 'string' ? update.taskId.trim() : '';
+    const expectedTaskId = typeof update?.expectedTaskId === 'string' ? update.expectedTaskId.trim() : '';
+
+    if (!config || !Number.isInteger(config.index) || !isSub2ApiConfig(config)) {
+        throw new ConfigEditorError('Sub2API task 的配置项索引不合法');
+    }
+    if (!taskId) {
+        throw new ConfigEditorError('Sub2API task 注册响应缺少 task_id');
+    }
+
+    const parsed = readParsedConfigFile(CONFIG_FILE);
+    const targetItem = parsed.configs[config.index];
+    if (!targetItem || targetItem.type !== 'token' || targetItem.subtype !== 'sub2api') {
+        throw new ConfigEditorError('Sub2API task 的配置项不存在');
+    }
+
+    const currentTaskId = typeof targetItem.credentials?.task_id === 'string'
+        ? targetItem.credentials.task_id.trim()
+        : '';
+    if (expectedTaskId && currentTaskId && currentTaskId !== expectedTaskId) {
+        return currentTaskId;
+    }
+
+    targetItem.credentials = {
+        ...(targetItem.credentials || {}),
+        task_id: taskId,
+    };
+    const savedParsed = persistConfigWithoutRuntimeReload(parsed);
+    return savedParsed.configs[config.index]?.credentials?.task_id || taskId;
 }
 
 function listenOnPort(port) {
@@ -1122,12 +1168,12 @@ function deleteLocalOnlyHeaders(headers) {
     }
 }
 
-function buildProxyHeaders(reqHeaders, config, contentLength) {
+function buildProxyHeaders(reqHeaders, config, contentLength, options = {}) {
     const headers = { ...reqHeaders };
 
     deleteHeadersCaseInsensitive(headers, HOP_BY_HOP_HEADERS);
     deleteLocalOnlyHeaders(headers);
-    const authHeaders = buildAuthHeadersForConfig(config);
+    const authHeaders = buildAuthHeadersForConfig(config, options);
     for (const [name, value] of Object.entries(authHeaders)) {
         if (typeof value !== 'undefined') {
             headers[name] = value;
@@ -1174,11 +1220,25 @@ function applyResponseHeaders(res, statusCode, rawHeaders) {
     };
 }
 
-function proxyRequest(req, res, config, body, originalUrl, options = {}) {
+async function proxyRequest(req, res, config, body, originalUrl, options = {}) {
+    try {
+        await sub2ApiAgentIdentityManager.ensureTask(config);
+    } catch (err) {
+        error('Sub2API task 准备失败:', err.message);
+        if (!res.headersSent) {
+            res.status(502).json({ error: 'Bad Gateway', message: err.message });
+        }
+        return;
+    }
+
     const hasBufferedBody = Buffer.isBuffer(body);
     const failoverAttempt = Number(options.failoverAttempt || 0);
+    const agentTaskRecoveryAttempt = Number(options.agentTaskRecoveryAttempt || 0);
+    const shouldLogQuotaUsage = req.method === 'GET' && isQuotaUsagePath(req.url);
     const headers = applyResponsesFailoverRequestHeaders(
-        buildProxyHeaders(req.headers, config, hasBufferedBody ? body.length : undefined),
+        buildProxyHeaders(req.headers, config, hasBufferedBody ? body.length : undefined, {
+            purpose: shouldLogQuotaUsage ? 'quota' : 'responses',
+        }),
         req.url
     );
     logProxyRequestSnapshot(req, originalUrl, req.url, config, headers, hasBufferedBody ? body : Buffer.alloc(0));
@@ -1195,7 +1255,6 @@ function proxyRequest(req, res, config, body, originalUrl, options = {}) {
     let headersApplied = false;
     let responseFinished = false;
     let requestClosed = false;
-    const shouldLogQuotaUsage = req.method === 'GET' && isQuotaUsagePath(req.url);
     const responseBodyChunks = [];
     let upstreamResponseHeaders = {};
     let upstreamResponse = null;
@@ -1276,6 +1335,28 @@ function proxyRequest(req, res, config, body, originalUrl, options = {}) {
     upstream.responsePromise.then(async response => {
         upstreamResponse = response;
         const statusCode = Number(response.statusCode || 502);
+
+        if (isSub2ApiConfig(config) && statusCode === 401) {
+            const bodyBuffer = await consumeResponseBody(response);
+            const bodyText = decodeResponseBody(bodyBuffer, response.headers['content-encoding']);
+            if (agentTaskRecoveryAttempt < 1 && isSub2ApiTaskInvalidResponse(statusCode, bodyText)) {
+                const expectedTaskId = config.credentials && config.credentials.task_id || '';
+                await sub2ApiAgentIdentityManager.recoverTask(config, expectedTaskId);
+                if (!requestClosed) {
+                    void proxyRequest(req, res, config, body, originalUrl, {
+                        ...options,
+                        agentTaskRecoveryAttempt: agentTaskRecoveryAttempt + 1,
+                    });
+                }
+                return;
+            }
+
+            writeBufferedUpstreamResponse(res, statusCode, response.headers, bodyBuffer);
+            headersApplied = true;
+            responseFinished = true;
+            return;
+        }
+
         const shouldInspectResponses = canAttemptResponsesFailover(config, req.url, failoverAttempt)
             && isResponsesFailoverInspectionCandidate(statusCode, response.headers);
 
@@ -1292,7 +1373,7 @@ function proxyRequest(req, res, config, body, originalUrl, options = {}) {
                 if (!requestClosed && nextConfig && nextConfig !== config) {
                     responseFinished = true;
                     void drainAbandonedResponse(response);
-                    proxyRequest(req, res, nextConfig, body, originalUrl, {
+                    void proxyRequest(req, res, nextConfig, body, originalUrl, {
                         failoverAttempt: failoverAttempt + 1,
                     });
                     return;
@@ -1427,10 +1508,10 @@ function createHandler(proxyPath = '') {
                     }
                 }
 
-                proxyRequest(req, res, config, body, incomingUrl);
+                void proxyRequest(req, res, config, body, incomingUrl);
             });
         } else {
-            proxyRequest(req, res, config, undefined, incomingUrl);
+            void proxyRequest(req, res, config, undefined, incomingUrl);
         }
     };
 }

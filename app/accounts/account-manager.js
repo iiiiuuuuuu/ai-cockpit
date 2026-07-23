@@ -1,5 +1,9 @@
 const { requestBuffered } = require('../http/upstream-request');
 const { formatAccountLabel } = require('./account-label');
+const {
+  isSub2ApiConfig,
+  isSub2ApiTaskInvalidResponse,
+} = require('./sub2api-agent-identity');
 
 const DEFAULT_QUOTA_REFRESH_CONCURRENCY = 2;
 
@@ -21,6 +25,8 @@ function createAccountManager(options) {
     shouldUseQuotaMonitoring,
     refreshTokenFn = null,
     persistTokenRefreshFn = async () => {},
+    ensureSub2ApiTaskFn = async () => '',
+    recoverSub2ApiTaskFn = async () => '',
     quotaRefreshConcurrency = DEFAULT_QUOTA_REFRESH_CONCURRENCY,
     log,
     warn,
@@ -568,18 +574,24 @@ function createAccountManager(options) {
   }
 
   async function requestQuotaPayload(config, targetUrl) {
+    await ensureSub2ApiTaskFn(config);
     const result = await withQuotaCheckTimeout(requestBufferedFn({
       method: 'GET',
       targetUrl,
-      headers: buildAuthHeadersForConfig(config),
+      headers: buildAuthHeadersForConfig(config, { purpose: 'quota' }),
       timeoutMs: quotaCheckTimeoutMs,
       maxRedirects: 5,
     }));
 
-    return {
-      result,
-      payload: JSON.parse(result.bodyText),
-    };
+    let payload = null;
+    let payloadParseError = null;
+    try {
+      payload = JSON.parse(result.bodyText);
+    } catch (err) {
+      payloadParseError = new Error('quota check response is not valid JSON');
+    }
+
+    return { result, payload, payloadParseError };
   }
 
   function parseJsonBody(text) {
@@ -808,13 +820,29 @@ function createAccountManager(options) {
     const targetUrl = new URL(quotaCheckPath, config.baseUrl).toString();
 
     try {
-      let { result, payload } = await requestQuotaPayload(config, targetUrl);
+      let { result, payload, payloadParseError } = await requestQuotaPayload(config, targetUrl);
       if (result.statusCode < 200 || result.statusCode >= 300) {
+        if (isSub2ApiConfig(config) && isSub2ApiTaskInvalidResponse(result.statusCode, result.bodyText)) {
+          const expectedTaskId = normalizeString(config.credentials && config.credentials.task_id);
+          await recoverSub2ApiTaskFn(config, expectedTaskId);
+          ({ result, payload, payloadParseError } = await requestQuotaPayload(config, targetUrl));
+          if (result.statusCode >= 200 && result.statusCode < 300) {
+            if (payloadParseError) {
+              throw payloadParseError;
+            }
+            applyQuotaPayload(config, payload, { allowSwitch });
+            return config.runtime;
+          }
+        }
+
         if (isMissingCredentialsPayload(payload)) {
-          const refreshed = await refreshConfigAccessToken(config);
+          const refreshed = !isSub2ApiConfig(config) && await refreshConfigAccessToken(config);
           if (refreshed) {
-            ({ result, payload } = await requestQuotaPayload(config, targetUrl));
+            ({ result, payload, payloadParseError } = await requestQuotaPayload(config, targetUrl));
             if (result.statusCode >= 200 && result.statusCode < 300) {
+              if (payloadParseError) {
+                throw payloadParseError;
+              }
               applyQuotaPayload(config, payload, { allowSwitch });
               return config.runtime;
             }
@@ -827,6 +855,9 @@ function createAccountManager(options) {
         throw new Error(`quota check status ${result.statusCode}`);
       }
 
+      if (payloadParseError) {
+        throw payloadParseError;
+      }
       applyQuotaPayload(config, payload, { allowSwitch });
     } catch (err) {
       config.runtime.available = false;

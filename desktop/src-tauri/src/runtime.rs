@@ -163,6 +163,19 @@ pub(crate) fn copy_entry_replace(source: &Path, destination: &Path) -> Result<()
 }
 
 pub(crate) fn sync_runtime_resources(source: &Path, destination: &Path) -> Result<(), String> {
+    let source_lockfile = source.join("package-lock.json");
+    let destination_lockfile = destination.join("package-lock.json");
+    let dependencies_changed = source_lockfile.is_file()
+        && (!destination_lockfile.is_file()
+            || fs::read(&source_lockfile).map_err(|error| error.to_string())?
+                != fs::read(&destination_lockfile).map_err(|error| error.to_string())?);
+    if dependencies_changed {
+        copy_entry_replace(
+            &source.join("node_modules"),
+            &destination.join("node_modules"),
+        )?;
+    }
+
     for entry in fs::read_dir(source)
         .map_err(|error| format!("无法读取资源目录 {}: {error}", source.display()))?
     {
@@ -172,7 +185,7 @@ pub(crate) fn sync_runtime_resources(source: &Path, destination: &Path) -> Resul
         let target = destination.join(&file_name);
 
         if file_name_text == "node_modules" {
-            if !target.exists() {
+            if !dependencies_changed && !target.exists() {
                 copy_dir_recursive(&entry.path(), &target).map_err(|error| {
                     format!(
                         "同步 node_modules 失败 {} -> {}: {error}",
@@ -190,6 +203,31 @@ pub(crate) fn sync_runtime_resources(source: &Path, destination: &Path) -> Resul
     Ok(())
 }
 
+fn resource_tree_differs(source: &Path, destination: &Path) -> io::Result<bool> {
+    if !destination.exists() {
+        return Ok(true);
+    }
+
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        if name == "node_modules" {
+            continue;
+        }
+        let target = destination.join(&name);
+        let source_type = entry.file_type()?;
+        if source_type.is_dir() {
+            if resource_tree_differs(&entry.path(), &target)? {
+                return Ok(true);
+            }
+        } else if !target.is_file() || fs::read(entry.path())? != fs::read(&target)? {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
 pub(crate) fn ensure_runtime<R: tauri::Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
     let runtime_dir = app_data_root()?;
     let resources = resource_airouter_dir(app)?;
@@ -197,6 +235,13 @@ pub(crate) fn ensure_runtime<R: tauri::Runtime>(app: &AppHandle<R>) -> Result<Pa
     if !runtime_dir.exists() {
         copy_dir_if_missing(&resources, &runtime_dir)?;
     } else {
+        let resources_changed = resource_tree_differs(&resources, &runtime_dir)
+            .map_err(|error| format!("无法检查运行资源版本: {error}"))?;
+        if resources_changed {
+            if read_pid(&runtime_dir).is_some_and(|pid| process_exists(pid)) {
+                force_stop_runtime_service(&runtime_dir)?;
+            }
+        }
         sync_runtime_resources(&resources, &runtime_dir)?;
     }
 

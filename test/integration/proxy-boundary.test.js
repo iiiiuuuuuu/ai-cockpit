@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { EventEmitter } = require('node:events');
@@ -102,6 +103,28 @@ test('buildProxyHeaders strips local-only auth headers before forwarding upstrea
   assert.equal(headers.connection, undefined);
   assert.equal(headers['accept-language'], 'zh-CN');
   assert.equal(headers['content-length'], '27');
+});
+
+test('buildProxyHeaders uses AgentAssertion for Sub2API token accounts', () => {
+  const { privateKey } = crypto.generateKeyPairSync('ed25519');
+  const config = {
+    type: 'token',
+    subtype: 'sub2api',
+    credentials: {
+      auth_mode: 'agentIdentity',
+      agent_runtime_id: 'runtime-proxy-1',
+      agent_private_key: privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64'),
+      task_id: 'task-proxy-1',
+      chatgpt_account_id: 'account-proxy-1',
+      chatgpt_user_id: 'user-proxy-1',
+    },
+  };
+
+  const headers = buildProxyHeaders({ accept: 'application/json' }, config, 10);
+
+  assert.match(headers.authorization, /^AgentAssertion /);
+  assert.equal(headers['chatgpt-account-id'], 'account-proxy-1');
+  assert.equal(headers['openai-beta'], 'responses=experimental');
 });
 
 test('isResponsesFailoverInspectionCandidate inspects upstream auth failures', () => {

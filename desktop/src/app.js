@@ -11,6 +11,7 @@ import {
   text,
   normalizeAccount,
   isApiKeyAccount,
+  isSub2ApiAccount,
   isDeletedAccount,
   getDisplayName,
   resolveTokenTitleParts,
@@ -144,6 +145,13 @@ import { fetchLatestRelease, readCachedUpdate, writeCachedUpdate } from './updat
     tokenStoppedAtInput: document.querySelector('#tokenStoppedAtInput'),
     tokenAccountIdInput: document.querySelector('#tokenAccountIdInput'),
     tokenClientIdInput: document.querySelector('#tokenClientIdInput'),
+    sub2ApiAccountIdInput: document.querySelector('#tokenSub2ApiAccountIdInput'),
+    tokenSub2ApiRuntimeIdInput: document.querySelector('#tokenSub2ApiRuntimeIdInput'),
+    tokenSub2ApiUserIdInput: document.querySelector('#tokenSub2ApiUserIdInput'),
+    tokenSub2ApiTaskIdInput: document.querySelector('#tokenSub2ApiTaskIdInput'),
+    tokenSub2ApiPrivateKeyInput: document.querySelector('#tokenSub2ApiPrivateKeyInput'),
+    sub2ApiFields: [...document.querySelectorAll('[data-sub2api-only]')],
+    standardTokenFields: [...document.querySelectorAll('[data-standard-token-only]')],
     tokenAccessTokenInput: document.querySelector('#tokenAccessTokenInput'),
     tokenRefreshTokenInput: document.querySelector('#tokenRefreshTokenInput'),
     tokenJsonInput: document.querySelector('#tokenJsonInput'),
@@ -234,13 +242,14 @@ import { fetchLatestRelease, readCachedUpdate, writeCachedUpdate } from './updat
     const normalized = normalizeAccount(account);
     const item = normalized.item || {};
     const apiKey = isApiKeyAccount(normalized);
+    const sub2Api = isSub2ApiAccount(normalized);
     const deleted = Boolean(isDeletedAccount(normalized));
     const reordering = state.reorderMode && !deleted;
     const available = getAvailability(normalized);
     const usage = formatUsageDays(normalized);
     const price = formatPrice(normalized);
     const typeClass = apiKey ? 'apikey' : 'token';
-    const typeLabel = apiKey ? 'API KEY' : 'TOKEN';
+    const typeLabel = apiKey ? 'API KEY' : sub2Api ? 'TOKEN · SUB2API' : 'TOKEN';
     const titleParts = resolveAccountTitleParts(normalized);
     const subtitle = titleParts.subtitle;
     const availabilityText = available ? '可用' : '不可用';
@@ -565,6 +574,7 @@ import { fetchLatestRelease, readCachedUpdate, writeCachedUpdate } from './updat
     elements.apiKeyAccountPanel.classList.toggle('active', state.accountModalMode === 'apikey');
     setPanelInputsDisabled(elements.tokenAccountPanel, state.accountModalMode !== 'token');
     setPanelInputsDisabled(elements.apiKeyAccountPanel, state.accountModalMode !== 'apikey');
+    setSub2ApiFieldsVisible(state.accountModalMode === 'token' && state.accountModalSubtype === 'sub2api');
     elements.accountModeTabs.hidden = false;
     if (state.editingAccountIndex === null) {
       elements.accountModalSubtitle.hidden = false;
@@ -606,6 +616,8 @@ import { fetchLatestRelease, readCachedUpdate, writeCachedUpdate } from './updat
 
   function clearAccountForm() {
     elements.accountForm.reset();
+    state.accountModalSubtype = '';
+    state.accountModalCredentials = null;
     elements.tokenJsonFeedback.textContent = '';
     elements.tokenJsonFeedback.className = 'inline-message';
     elements.accountModalSubtitle.hidden = false;
@@ -622,6 +634,24 @@ import { fetchLatestRelease, readCachedUpdate, writeCachedUpdate } from './updat
     }
     if (elements.tokenFormatDialog) elements.tokenFormatDialog.hidden = true;
     showTokenFormat('session');
+    setSub2ApiFieldsVisible(false);
+  }
+
+  function setSub2ApiFieldsVisible(visible) {
+    elements.sub2ApiFields.forEach(field => {
+      field.hidden = !visible;
+    });
+    elements.standardTokenFields.forEach(field => {
+      field.hidden = visible;
+    });
+    if (elements.tokenAccessTokenInput) {
+      elements.tokenAccessTokenInput.required = !visible;
+    }
+    if (elements.saveAccountButton && state.accountModalMode === 'token') {
+      elements.saveAccountButton.textContent = state.editingAccountIndex === null
+        ? (visible ? '添加 Sub2API 账号' : '添加 Token 账号')
+        : (visible ? '保存账号' : '保存');
+    }
   }
 
   function setEditOnlyFieldsVisible(visible) {
@@ -637,7 +667,7 @@ import { fetchLatestRelease, readCachedUpdate, writeCachedUpdate } from './updat
   }
 
   function showTokenFormat(format) {
-    const selected = format === 'app' ? 'app' : 'session';
+    const selected = ['session', 'app', 'sub2api'].includes(format) ? format : 'session';
     elements.tokenFormatButtons.forEach(button => {
       const active = button.dataset.tokenFormat === selected;
       button.classList.toggle('active', active);
@@ -912,7 +942,7 @@ import { fetchLatestRelease, readCachedUpdate, writeCachedUpdate } from './updat
     try {
       const parsed = JSON.parse(raw);
       const fields = parseTokenJsonObject(parsed, { startedAt: elements.tokenStartedAtInput.value });
-      if (!fields.access_token) {
+      if (!fields.access_token && fields.subtype !== 'sub2api') {
         throw new Error('未找到 access_token，请确认粘贴了完整的登录 JSON');
       }
       fillTokenFields(fields);
@@ -922,8 +952,12 @@ import { fetchLatestRelease, readCachedUpdate, writeCachedUpdate } from './updat
         fields.client_id,
         fields.access_token,
         fields.refresh_token,
+        fields.credentials?.agent_runtime_id,
       ].filter(Boolean).length;
-      setTokenJsonFeedback('success', `JSON 已解析并填充 ${populatedCount} 个字段。`);
+      const message = fields.subtype === 'sub2api'
+        ? `已识别 Sub2API Agent Identity，已填充 ${populatedCount} 个字段，无需访问令牌。`
+        : `JSON 已解析并填充 ${populatedCount} 个字段。`;
+      setTokenJsonFeedback('success', message);
       if (elements.tokenParseStatus) {
         elements.tokenParseStatus.textContent = '已解析';
       }
@@ -940,15 +974,27 @@ import { fetchLatestRelease, readCachedUpdate, writeCachedUpdate } from './updat
   }
 
   function fillTokenFields(fields) {
+    state.accountModalSubtype = fields.subtype === 'sub2api' ? 'sub2api' : '';
+    state.accountModalCredentials = fields.subtype === 'sub2api'
+      ? { ...(fields.credentials || {}) }
+      : null;
     elements.tokenEmailInput.value = fields.description || '';
     elements.tokenAliasInput.value = fields.alias || '';
     elements.tokenPriceInput.value = fields.price_yuan || '';
     setDateTimeInput(elements.tokenStartedAtInput, fields.started_at);
     setDateTimeInput(elements.tokenStoppedAtInput, fields.stopped_at);
-    elements.tokenAccountIdInput.value = fields.account_id || '';
+    elements.tokenAccountIdInput.value = fields.account_id || fields.credentials?.chatgpt_account_id || '';
+    if (elements.sub2ApiAccountIdInput) {
+      elements.sub2ApiAccountIdInput.value = fields.credentials?.chatgpt_account_id || '';
+    }
     elements.tokenClientIdInput.value = fields.client_id || '';
     elements.tokenAccessTokenInput.value = fields.access_token || '';
     elements.tokenRefreshTokenInput.value = fields.refresh_token || '';
+    if (elements.tokenSub2ApiRuntimeIdInput) elements.tokenSub2ApiRuntimeIdInput.value = fields.credentials?.agent_runtime_id || '';
+    if (elements.tokenSub2ApiUserIdInput) elements.tokenSub2ApiUserIdInput.value = fields.credentials?.chatgpt_user_id || '';
+    if (elements.tokenSub2ApiTaskIdInput) elements.tokenSub2ApiTaskIdInput.value = fields.credentials?.task_id || '';
+    if (elements.tokenSub2ApiPrivateKeyInput) elements.tokenSub2ApiPrivateKeyInput.value = fields.credentials?.agent_private_key || '';
+    setSub2ApiFieldsVisible(state.accountModalSubtype === 'sub2api');
   }
 
   function fillApiKeyFields(fields) {
@@ -1008,6 +1054,37 @@ import { fetchLatestRelease, readCachedUpdate, writeCachedUpdate } from './updat
         price_yuan: readOptionalPrice(elements.apiKeyPriceInput),
         started_at: readDateTimeInput(elements.apiKeyStartedAtInput),
         stopped_at: readDateTimeInput(elements.apiKeyStoppedAtInput),
+      };
+    }
+
+    if (state.accountModalSubtype === 'sub2api') {
+      const credentials = {
+        ...(state.accountModalCredentials || {}),
+        auth_mode: 'agentIdentity',
+        agent_runtime_id: elements.tokenSub2ApiRuntimeIdInput.value.trim(),
+        agent_private_key: elements.tokenSub2ApiPrivateKeyInput.value.trim(),
+        task_id: elements.tokenSub2ApiTaskIdInput.value.trim(),
+        chatgpt_account_id: elements.sub2ApiAccountIdInput.value.trim(),
+        chatgpt_user_id: elements.tokenSub2ApiUserIdInput.value.trim(),
+        email: elements.tokenEmailInput.value.trim(),
+      };
+      for (const field of ['task_id', 'email']) {
+        if (!credentials[field]) delete credentials[field];
+      }
+      for (const field of ['agent_runtime_id', 'agent_private_key', 'chatgpt_account_id', 'chatgpt_user_id']) {
+        if (!credentials[field]) throw new Error(`${field} 必填`);
+      }
+      return {
+        mode: state.editingAccountIndex !== null ? 'edit' : 'token',
+        index: state.editingAccountIndex,
+        type: 'token',
+        subtype: 'sub2api',
+        description: elements.tokenEmailInput.value.trim(),
+        alias: elements.tokenAliasInput.value.trim(),
+        price_yuan: readOptionalPrice(elements.tokenPriceInput),
+        started_at: readDateTimeInput(elements.tokenStartedAtInput),
+        stopped_at: readDateTimeInput(elements.tokenStoppedAtInput),
+        credentials,
       };
     }
 
@@ -1357,7 +1434,14 @@ import { fetchLatestRelease, readCachedUpdate, writeCachedUpdate } from './updat
   function showToast(message) {
     if (!elements.toast) return;
     window.clearTimeout(state.toastTimer);
-    elements.toast.textContent = message;
+    const rawMessage = String(message || '').replace(/\s+/g, ' ').trim();
+    const missingModule = rawMessage.match(/Cannot find module ['"]([^'"]+)['"]/i);
+    const displayMessage = missingModule
+      ? `服务依赖缺失：${missingModule[1]}`
+      : rawMessage.length > 180
+        ? `${rawMessage.slice(0, 177)}...`
+        : rawMessage;
+    elements.toast.textContent = displayMessage;
     elements.toast.hidden = false;
     state.toastTimer = window.setTimeout(() => {
       elements.toast.hidden = true;

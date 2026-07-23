@@ -199,6 +199,7 @@ fn main() {
 mod tests {
     use super::*;
     use crate::desktop_data::*;
+    use crate::runtime::sync_runtime_resources;
 
     fn native_source() -> String {
         let source_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -862,6 +863,26 @@ mod tests {
         assert!(!temp.path().join(PID_FILE).exists());
         assert!(!temp.path().join("openai.control.json").exists());
         assert!(!temp.path().join("openai.control.request.json").exists());
+    }
+
+    #[test]
+    fn runtime_resource_sync_replaces_dependencies_when_lockfile_changes() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let source = temp.path().join("source");
+        let destination = temp.path().join("destination");
+        fs::create_dir_all(source.join("node_modules/tweetnacl")).expect("source modules");
+        fs::create_dir_all(destination.join("node_modules/legacy")).expect("destination modules");
+        fs::write(source.join("package-lock.json"), "new-lock").expect("source lock");
+        fs::write(destination.join("package-lock.json"), "old-lock").expect("destination lock");
+        fs::write(source.join("node_modules/tweetnacl/index.js"), "module.exports = {}")
+            .expect("source dependency");
+        fs::write(destination.join("node_modules/legacy/index.js"), "legacy")
+            .expect("legacy dependency");
+
+        sync_runtime_resources(&source, &destination).expect("sync resources");
+
+        assert!(destination.join("node_modules/tweetnacl/index.js").exists());
+        assert!(!destination.join("node_modules/legacy/index.js").exists());
     }
 
     #[test]

@@ -580,6 +580,22 @@ pub(crate) fn build_new_desktop_account(
             string_field(request, "description"),
         );
     } else {
+        let subtype = string_field(request, "subtype");
+        if subtype.as_deref().is_some_and(|value| value.eq_ignore_ascii_case("sub2api")) {
+            let credentials = request
+                .get("credentials")
+                .filter(|value| value.is_object())
+                .cloned()
+                .ok_or_else(|| "Sub2API credentials 必填".to_string())?;
+            validate_sub2api_credentials(&credentials)?;
+            item.insert("type".to_string(), Value::String("token".to_string()));
+            item.insert("subtype".to_string(), Value::String("sub2api".to_string()));
+            item.insert("credentials".to_string(), credentials);
+            set_optional_string(&mut item, "description", string_field(request, "description"));
+            set_optional_string(&mut item, "alias", string_field(request, "alias"));
+            set_optional_subtype_metadata(&mut item, request, sort_order);
+            return Ok(Value::Object(item));
+        }
         let access_token =
             string_field(request, "access_token").ok_or_else(|| "access_token 必填".to_string())?;
         item.insert("access_token".to_string(), Value::String(access_token));
@@ -607,6 +623,48 @@ pub(crate) fn build_new_desktop_account(
     }
     item.insert("sort_order".to_string(), Value::from(sort_order));
     Ok(Value::Object(item))
+}
+
+fn sub2api_string(credentials: &Value, key: &str) -> Option<String> {
+    credentials
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn validate_sub2api_credentials(credentials: &Value) -> Result<(), String> {
+    for key in ["agent_runtime_id", "agent_private_key", "chatgpt_account_id", "chatgpt_user_id"] {
+        if sub2api_string(credentials, key).is_none() {
+            return Err(format!("{key} 必填"));
+        }
+    }
+    Ok(())
+}
+
+fn sub2api_identity(item: &Value) -> Option<(String, String)> {
+    let credentials = item.get("credentials")?;
+    Some((
+        sub2api_string(credentials, "chatgpt_account_id")?,
+        sub2api_string(credentials, "agent_runtime_id")?,
+    ))
+}
+
+fn is_sub2api_item(item: &Value) -> bool {
+    batch_account_type(item) == "token"
+        && item.get("subtype").and_then(Value::as_str).is_some_and(|value| value.eq_ignore_ascii_case("sub2api"))
+}
+
+fn set_optional_subtype_metadata(item: &mut Map<String, Value>, request: &Map<String, Value>, sort_order: usize) {
+    set_optional_value(item, "price_yuan", number_field(request, "price_yuan"));
+    set_optional_string(item, "started_at", string_field(request, "started_at"));
+    set_optional_string(item, "stopped_at", string_field(request, "stopped_at"));
+    set_optional_string(item, "deleted_at", string_field(request, "deleted_at"));
+    if request.get("auto_switch_disabled").and_then(Value::as_bool) == Some(true) {
+        item.insert("auto_switch_disabled".to_string(), Value::Bool(true));
+    }
+    item.insert("sort_order".to_string(), Value::from(sort_order));
 }
 
 fn normalized_batch_base_url(value: Option<&Value>) -> String {
@@ -656,6 +714,14 @@ fn matching_batch_account_index(configs: &[Value], candidate: &Value) -> Option<
         .and_then(Value::as_str)
         .map(str::trim)
         .unwrap_or_default();
+    if candidate
+        .get("subtype")
+        .and_then(Value::as_str)
+        .is_some_and(|value| value.eq_ignore_ascii_case("sub2api"))
+    {
+        let identity = sub2api_identity(candidate)?;
+        return configs.iter().position(|item| is_sub2api_item(item) && sub2api_identity(item).as_ref() == Some(&identity));
+    }
     if account_id.is_empty() {
         return None;
     }
@@ -669,6 +735,10 @@ fn matching_batch_account_index(configs: &[Value], candidate: &Value) -> Option<
 }
 
 fn batch_token_credentials_differ(existing: &Value, candidate: &Value) -> bool {
+    if is_sub2api_item(candidate) || is_sub2api_item(existing) {
+        return existing.get("credentials") != candidate.get("credentials")
+            || existing.get("subtype") != candidate.get("subtype");
+    }
     let differs = |key: &str| {
         let incoming = candidate
             .get(key)
@@ -693,6 +763,23 @@ fn update_batch_token_credentials(existing: &mut Value, candidate: &Value) -> Re
     let candidate = candidate
         .as_object()
         .ok_or_else(|| "导入账号格式无效".to_string())?;
+
+    if candidate
+        .get("subtype")
+        .and_then(Value::as_str)
+        .is_some_and(|value| value.eq_ignore_ascii_case("sub2api"))
+    {
+        let credentials = candidate.get("credentials").cloned().ok_or_else(|| "Sub2API credentials 缺失".to_string())?;
+        validate_sub2api_credentials(&credentials)?;
+        existing.insert("subtype".to_string(), Value::String("sub2api".to_string()));
+        existing.insert("credentials".to_string(), credentials);
+        for key in ["description", "alias"] {
+            if let Some(value) = candidate.get(key).and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty()) {
+                existing.insert(key.to_string(), Value::String(value.to_string()));
+            }
+        }
+        return Ok(());
+    }
 
     for key in [
         "access_token",
@@ -734,19 +821,14 @@ pub(crate) fn apply_desktop_batch_import(
                 {
                     return false;
                 }
-                let candidate_account_id = candidate
-                    .get("account_id")
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .unwrap_or_default();
-                let existing_account_id = configs[*index]
-                    .get("account_id")
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .unwrap_or_default();
-                candidate_account_id.is_empty()
-                    || existing_account_id.is_empty()
-                    || candidate_account_id == existing_account_id
+                if is_sub2api_item(&candidate) || is_sub2api_item(&configs[*index]) {
+                    sub2api_identity(&candidate).is_some()
+                        && sub2api_identity(&candidate) == sub2api_identity(&configs[*index])
+                } else {
+                    let candidate_account_id = candidate.get("account_id").and_then(Value::as_str).map(str::trim).unwrap_or_default();
+                    let existing_account_id = configs[*index].get("account_id").and_then(Value::as_str).map(str::trim).unwrap_or_default();
+                    candidate_account_id.is_empty() || existing_account_id.is_empty() || candidate_account_id == existing_account_id
+                }
             });
         if let Some(index) =
             requested_index.or_else(|| matching_batch_account_index(configs, &candidate))
@@ -815,6 +897,19 @@ pub(crate) fn apply_desktop_account_edit(
         item.insert("support".to_string(), Value::from(vec!["gpt"]));
         set_optional_string(item, "description", string_field(request, "description"));
     } else {
+        if string_field(request, "subtype").as_deref().is_some_and(|value| value.eq_ignore_ascii_case("sub2api")) {
+            let credentials = request.get("credentials").filter(|value| value.is_object()).cloned().ok_or_else(|| "Sub2API credentials 必填".to_string())?;
+            validate_sub2api_credentials(&credentials)?;
+            item.insert("type".to_string(), Value::String("token".to_string()));
+            item.insert("subtype".to_string(), Value::String("sub2api".to_string()));
+            item.insert("credentials".to_string(), credentials);
+            set_optional_string(item, "description", string_field(request, "description"));
+            set_optional_string(item, "alias", string_field(request, "alias"));
+            set_optional_value(item, "price_yuan", number_field(request, "price_yuan"));
+            set_optional_string(item, "started_at", string_field(request, "started_at"));
+            set_optional_string(item, "stopped_at", string_field(request, "stopped_at"));
+            return Ok(());
+        }
         let access_token =
             string_field(request, "access_token").ok_or_else(|| "access_token 必填".to_string())?;
         item.remove("type");
